@@ -1,8 +1,16 @@
 import React from 'react';
 import { ImageBackground, StyleSheet, View, Text, Image, TouchableOpacity } from 'react-native';
+import { LevelProgress } from '../utils/levelProgress';
 
 export default function FinishScreen({ route, navigation }) {
-  const { selectedCharacter = 0 } = route.params || {};
+  const { 
+    selectedCharacter = 0, 
+    isCorrect = false, 
+    timeUp = false, 
+    stage = 1,
+    levelGroup = 1,
+    timeRemaining = 0 
+  } = route.params || {};
 
   const characters = [
     require('../assets/chara1.png'),
@@ -17,11 +25,73 @@ export default function FinishScreen({ route, navigation }) {
   const CHARACTER_HEIGHT = 180;
   const WHITE_BAR_HEIGHT = CHARACTER_HEIGHT / 2.8;
 
+  // Check if all stages in current level group are completed
+  const isAllStagesCompleted = () => {
+    return isCorrect && stage === 4;
+  };
+
+  // Different messages based on the outcome
+  const getDialogueContent = () => {
+    if (timeUp) {
+      return {
+        text: "Time's Up! Try again to unlock the next stage!",
+        buttonText: "Retry Stage",
+        backgroundColor: '#FF6B6B'
+      };
+    } else if (isCorrect) {
+      if (stage === 4) {
+        if (levelGroup === 3) {
+          return {
+            text: "🎉 Amazing! You've completed all levels! Congratulations!",
+            buttonText: "Back to Levels",
+            backgroundColor: '#4CAF50'
+          };
+        } else {
+          return {
+            text: `🎉 Great job! You've completed Level ${levelGroup}! Level ${levelGroup + 1} is now unlocked!`,
+            buttonText: "Continue to Next Level",
+            backgroundColor: '#4CAF50'
+          };
+        }
+      } else {
+        return {
+          text: `Great job! Stage ${stage + 1} is now unlocked!`,
+          buttonText: "Continue",
+          backgroundColor: '#4CAF50'
+        };
+      }
+    } else {
+      return {
+        text: "Oops! Wrong answer. Try again to unlock the next stage!",
+        buttonText: "Retry Stage",
+        backgroundColor: '#FF6B6B'
+      };
+    }
+  };
+
+  const handleContinue = async () => {
+    if (isCorrect && stage === 4) {
+      // If completed all stages of current level group, go back to LevelSelect to see unlocked levels
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'LevelSelect' }],
+      });
+    } else if (isCorrect) {
+      // If correct but not final stage, go back to map to see unlocked stages
+      navigation.replace('MapLevels', { levelGroup });
+    } else {
+      // If wrong or time up, retry the same stage
+      navigation.replace('Quiz', { stage, levelGroup });
+    }
+  };
+
+  const dialogueContent = getDialogueContent();
+
   return (
     <TouchableOpacity
       style={{ flex: 1 }}
       activeOpacity={1}
-      onPress={() => navigation.replace('MapLevels')}
+      onPress={handleContinue}
     >
       <ImageBackground
         source={require('../assets/map 1.png')}
@@ -29,12 +99,25 @@ export default function FinishScreen({ route, navigation }) {
         resizeMode="cover"
       >
         <View style={[styles.centeredContainer, { marginBottom: WHITE_BAR_HEIGHT + 30 }]}>
-          <View style={styles.dialogueBox}>
+          <View style={[styles.dialogueBox, { borderColor: dialogueContent.backgroundColor, borderWidth: 3 }]}>
             <Text style={styles.dialogueText}>
-              Congrats! You made it!
+              {dialogueContent.text}
+            </Text>
+            
+            {/* Show additional info for correct answers */}
+            {isCorrect && timeRemaining > 0 && (
+              <Text style={styles.bonusText}>
+                Time bonus: {timeRemaining} seconds remaining!
+              </Text>
+            )}
+            
+            {/* Show level info */}
+            <Text style={styles.levelInfo}>
+              Level {levelGroup} - Stage {stage} {isAllStagesCompleted() ? 'COMPLETE!' : ''}
             </Text>
           </View>
         </View>
+
         {/* White bar at the bottom */}
         <View style={[styles.whiteBar, { height: WHITE_BAR_HEIGHT }]}>
           <View style={styles.characterContainer}>
@@ -51,9 +134,17 @@ export default function FinishScreen({ route, navigation }) {
             />
           </View>
         </View>
-        {/* "Click anywhere to continue" text, centered on the white bar */}
+
+        {/* Action button */}
         <View style={[styles.continueContainer, { height: WHITE_BAR_HEIGHT }]}>
-          <Text style={styles.continueText}>Click anywhere to continue</Text>
+          <TouchableOpacity 
+            style={[styles.actionButton, { backgroundColor: dialogueContent.backgroundColor }]}
+            onPress={handleContinue}
+          >
+            <Text style={styles.actionButtonText}>{dialogueContent.buttonText}</Text>
+          </TouchableOpacity>
+          
+          <Text style={styles.continueText}>or tap anywhere to continue</Text>
         </View>
       </ImageBackground>
     </TouchableOpacity>
@@ -71,7 +162,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 18,
     padding: 18,
-    width: 270,
+    width: 300,
     elevation: 8,
     shadowColor: '#000',
     shadowOpacity: 0.10,
@@ -82,9 +173,23 @@ const styles = StyleSheet.create({
   },
   dialogueText: {
     fontFamily: 'Poppins-Bold',
-    fontSize: 18,
+    fontSize: 16,
     color: '#222',
-    lineHeight: 24,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  bonusText: {
+    fontFamily: 'Poppins-Bold',
+    fontSize: 14,
+    color: '#4CAF50',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  levelInfo: {
+    fontFamily: 'Poppins-Bold',
+    fontSize: 12,
+    color: '#888',
     textAlign: 'center',
   },
   whiteBar: {
@@ -114,16 +219,34 @@ const styles = StyleSheet.create({
   continueContainer: {
     position: 'absolute',
     bottom: 100,
-    left: 30,
+    left: 0,
     width: '100%',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 3,
+    paddingHorizontal: 30,
+  },
+  actionButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
+    marginBottom: 8,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontFamily: 'Poppins-Bold',
+    fontSize: 16,
+    textAlign: 'center',
   },
   continueText: {
     color: '#bdbdbd',
     fontFamily: 'Poppins-Bold',
-    fontSize: 13,
+    fontSize: 11,
     textAlign: 'center',
   },
 });

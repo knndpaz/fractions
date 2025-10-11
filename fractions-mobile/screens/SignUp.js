@@ -1,41 +1,62 @@
 import React, { useState } from 'react';
 import { ImageBackground, StyleSheet, View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase';
 
-export default function Login({ navigation }) {
+export default function SignUp({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async () => {
-    if (!email || !password) {
+  const handleSignUp = async () => {
+    if (!email || !password || !confirmPassword || !fullName || !username) {
       Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+
+    if (username.length < 3) {
+      Alert.alert('Error', 'Username must be at least 3 characters');
       return;
     }
 
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signUp({
         email: email.toLowerCase().trim(),
         password: password,
+        options: {
+          data: {
+            full_name: fullName,
+            username: username.toLowerCase().trim(),
+          }
+        }
       });
 
       if (error) {
-        Alert.alert('Login Failed', error.message);
+        Alert.alert('Sign Up Failed', error.message);
       } else {
-        // Store user data locally
-        const userData = {
-          id: data.user.id,
-          email: data.user.email,
-          fullName: data.user.user_metadata?.full_name || 'User',
-          username: data.user.user_metadata?.username || email.split('@')[0],
-        };
+        // Automatically navigate to login after successful signup
+        navigation.navigate('Login');
         
-        await AsyncStorage.setItem('userData', JSON.stringify(userData));
-        
-        // Login successful, navigate to LevelSelect
-        navigation.replace('LevelSelect');
+        // Show success message briefly
+        setTimeout(() => {
+          Alert.alert(
+            'Success', 
+            'Account created successfully! You can now log in.',
+          );
+        }, 500);
       }
     } catch (error) {
       Alert.alert('Error', 'An unexpected error occurred');
@@ -51,8 +72,23 @@ export default function Login({ navigation }) {
       resizeMode="cover"
     >
       <View style={styles.centered}>
-        <View style={styles.loginBox}>
-          <Text style={styles.loginTitle}>LOGIN</Text>
+        <View style={styles.signupBox}>
+          <Text style={styles.signupTitle}>SIGN UP</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Full Name"
+            placeholderTextColor="#bdbdbd"
+            value={fullName}
+            onChangeText={setFullName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Username"
+            placeholderTextColor="#bdbdbd"
+            value={username}
+            onChangeText={setUsername}
+            autoCapitalize="none"
+          />
           <TextInput
             style={styles.input}
             placeholder="Email"
@@ -70,20 +106,28 @@ export default function Login({ navigation }) {
             onChangeText={setPassword}
             secureTextEntry
           />
+          <TextInput
+            style={styles.input}
+            placeholder="Confirm Password"
+            placeholderTextColor="#bdbdbd"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            secureTextEntry
+          />
           <TouchableOpacity
-            style={[styles.loginButton, loading && styles.disabledButton]}
-            onPress={handleLogin}
+            style={[styles.signupButton, loading && styles.disabledButton]}
+            onPress={handleSignUp}
             disabled={loading}
           >
-            <Text style={styles.loginButtonText}>
-              {loading ? 'LOGGING IN...' : 'LOGIN'}
+            <Text style={styles.signupButtonText}>
+              {loading ? 'CREATING ACCOUNT...' : 'SIGN UP'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.signupLink}
-            onPress={() => navigation.navigate('SignUp')}
+            style={styles.loginLink}
+            onPress={() => navigation.navigate('Login')}
           >
-            <Text style={styles.signupText}>Don't have an account? Sign Up</Text>
+            <Text style={styles.loginText}>Already have an account? Login</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -102,7 +146,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loginBox: {
+  signupBox: {
     width: 260,
     backgroundColor: '#fff',
     borderRadius: 14,
@@ -115,7 +159,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
   },
-  loginTitle: {
+  signupTitle: {
     fontFamily: 'Poppins-Bold',
     fontSize: 18,
     marginBottom: 18,
@@ -133,7 +177,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins-Bold',
     color: '#222',
   },
-  loginButton: {
+  signupButton: {
     width: '100%',
     backgroundColor: '#FFA85C',
     borderRadius: 8,
@@ -144,16 +188,16 @@ const styles = StyleSheet.create({
   disabledButton: {
     backgroundColor: '#ccc',
   },
-  loginButtonText: {
+  signupButtonText: {
     color: '#fff',
     fontFamily: 'Poppins-Bold',
     fontSize: 16,
     letterSpacing: 1,
   },
-  signupLink: {
+  loginLink: {
     marginTop: 16,
   },
-  signupText: {
+  loginText: {
     color: '#FFA85C',
     fontFamily: 'Poppins-Bold',
     fontSize: 12,
