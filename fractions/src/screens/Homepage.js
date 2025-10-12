@@ -117,15 +117,46 @@ export default function Homepage({ onNavigate }) {
     }
   };
 
-  // Add single student (UPDATED)
+  // helper: normalize to lowercase without spaces
+  const normalize = (s) => (s || '').trim().toLowerCase();
+
+  // helper: check duplicates in students table by username OR email
+  const checkExistingStudent = async (username, email) => {
+    const uname = normalize(username);
+    const mail = normalize(email);
+    const { data, error } = await supabase
+      .from('students')
+      .select('id, username, email')
+      .or(`username.eq.${uname},email.eq.${mail}`)
+      .limit(1);
+    if (error) throw error;
+    return data?.[0] || null;
+  };
+
+  // Add single student (UPDATED: prevent 409 by pre-checking)
   const handleAddStudent = async () => {
     if (!studentName.trim() || !studentUsername.trim() || !studentEmail.trim() || !studentPassword.trim() || !studentSection.trim()) {
       alert('Please fill in all fields');
       return;
     }
 
+    const uname = normalize(studentUsername);
+    const mail = normalize(studentEmail);
+
     setLoading(true);
     try {
+      // Check for duplicates BEFORE creating auth user
+      const dup = await checkExistingStudent(uname, mail);
+      if (dup) {
+        if (dup.username === uname) {
+          alert('Username already exists. Please choose a different username.');
+        } else {
+          alert('Email already exists. Please use a different email.');
+        }
+        setLoading(false);
+        return;
+      }
+
       // Find or create section FIRST
       const section = await findOrCreateSection(studentSection);
       if (!section) {
@@ -134,80 +165,63 @@ export default function Homepage({ onNavigate }) {
         return;
       }
 
-      console.log('Creating student for section:', section);
-
       // Create user in Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: studentEmail.toLowerCase().trim(),
+        email: mail,
         password: studentPassword,
         options: {
           data: {
-            full_name: studentName,
-            username: studentUsername.toLowerCase().trim(),
+            full_name: studentName.trim(),
+            username: uname,
             section: section.name,
-            section_id: section.id, // Add section_id to metadata
+            section_id: section.id,
             role: 'student'
           }
         }
       });
 
       if (authError) {
-        alert('Error creating user account: ' + authError.message);
+        // Common: "User already registered" -> email conflict in Auth
+        alert(`Error creating user account: ${authError.message}`);
         setLoading(false);
         return;
       }
 
-      console.log('Auth user created:', authData.user.id);
-      console.log('Assigning to section:', section.id, section.name);
-
-      // Create student record in students table with explicit section_id
+      // Insert student record; use upsert on username to avoid race 409
       const { data: studentData, error: studentError } = await supabase
         .from('students')
-        .insert([{
+        .upsert([{
           user_id: authData.user.id,
           name: studentName.trim(),
-          username: studentUsername.toLowerCase().trim(),
-          email: studentEmail.toLowerCase().trim(),
-          section_id: section.id // Explicitly set the section_id
-        }])
-        .select(`
-          *,
-          sections(name)
-        `)
+          username: uname,
+          email: mail,
+          section_id: section.id
+        }], { onConflict: 'username' })
+        .select(`*, sections(name)`)
         .single();
 
       if (studentError) {
-        console.error('Student record error:', studentError);
         alert('Error creating student record: ' + studentError.message);
       } else {
-        console.log('Student record created:', studentData);
-        
-        // Update local state immediately with the new student
         setStudents(prev => [...prev, studentData]);
-        
-        // Also reload to ensure consistency
         await loadStudents();
-        
-        // Reset form
         setStudentName("");
         setStudentUsername("");
         setStudentEmail("");
         setStudentPassword("");
         setStudentSection("");
-        
-        alert(`Student "${studentName}" created successfully and added to section "${section.name}"! They can now log into the mobile app.`);
+        alert(`Student "${studentName}" created in section "${section.name}".`);
       }
     } catch (error) {
-      console.error('Unexpected error:', error);
       alert('Error creating student: ' + error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Add multiple students (UPDATED)
+  // Add multiple students (UPDATED: pre-check duplicates per student and skip)
   const handleAddMultipleStudents = async () => {
-    const validStudents = multipleStudents.filter(s => 
+    const validStudents = multipleStudents.filter(s =>
       s.name.trim() && s.username.trim() && s.email.trim() && s.password.trim() && s.section.trim()
     );
 
@@ -219,83 +233,77 @@ export default function Homepage({ onNavigate }) {
     setLoading(true);
     try {
       let successCount = 0;
+      let skippedDuplicates = 0;
       const createdStudents = [];
-      
-      for (const student of validStudents) {
+
+      for (const s of validStudents) {
+        const uname = normalize(s.username);
+        const mail = normalize(s.email);
+
         try {
-          // Find or create section for each student
-          const section = await findOrCreateSection(student.section);
-          if (!section) {
-            console.error('Failed to create section for:', student.section);
+          // pre-check duplicates
+          const dup = await checkExistingStudent(uname, mail);
+          if (dup) {
+            skippedDuplicates++;
             continue;
           }
 
-          console.log(`Creating student ${student.name} for section:`, section.name);
+          // section
+          const section = await findOrCreateSection(s.section);
+          if (!section) continue;
 
-          // Create user account
+          // create auth user
           const { data: authData, error: authError } = await supabase.auth.signUp({
-            email: student.email.toLowerCase().trim(),
-            password: student.password,
+            email: mail,
+            password: s.password,
             options: {
               data: {
-                full_name: student.name,
-                username: student.username.toLowerCase().trim(),
+                full_name: s.name.trim(),
+                username: uname,
                 section: section.name,
                 section_id: section.id,
                 role: 'student'
               }
             }
           });
-
           if (authError) {
-            console.error('Auth error for', student.email, authError);
+            // skip if email already registered in auth
             continue;
           }
 
-          // Create student record with explicit section_id
+          // students row (use upsert to avoid race)
           const { data: studentData, error: studentError } = await supabase
             .from('students')
-            .insert([{
+            .upsert([{
               user_id: authData.user.id,
-              name: student.name.trim(),
-              username: student.username.toLowerCase().trim(),
-              email: student.email.toLowerCase().trim(),
+              name: s.name.trim(),
+              username: uname,
+              email: mail,
               section_id: section.id
-            }])
-            .select(`
-              *,
-              sections(name)
-            `)
+            }], { onConflict: 'username' })
+            .select('*, sections(name)')
             .single();
 
           if (!studentError && studentData) {
             successCount++;
             createdStudents.push(studentData);
-            console.log(`Student ${student.name} created successfully in section ${section.name}`);
-          } else {
-            console.error('Student record error for', student.name, studentError);
           }
-        } catch (error) {
-          console.error('Error creating student:', student.email, error);
+        } catch (err) {
+          // keep going with the next student
         }
       }
 
-      // Update local state with all created students
       if (createdStudents.length > 0) {
         setStudents(prev => [...prev, ...createdStudents]);
       }
-      
-      // Reload to ensure consistency
       await loadStudents();
-      
-      // Reset form
+
       setMultipleStudents([{ name: "", username: "", email: "", password: "", section: "" }]);
       setIsMultipleMode(false);
       setSameSection(false);
-      
-      alert(`${successCount} out of ${validStudents.length} students created successfully and assigned to their sections!`);
+
+      alert(`${successCount} student(s) created. ${skippedDuplicates} skipped due to duplicate username/email.`);
     } catch (error) {
-      console.error('Unexpected error in multiple student creation:', error);
       alert('Error creating students: ' + error.message);
     } finally {
       setLoading(false);
