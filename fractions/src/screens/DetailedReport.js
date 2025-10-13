@@ -560,7 +560,8 @@ export default function DetailedReport({ section, onNavigate }) {
                   key={student.id}
                   className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors cursor-pointer"
                   onClick={() =>
-                    onNavigate && onNavigate("studentreport", student)
+                    onNavigate &&
+                    onNavigate("studentreport", { student, section })
                   }
                 >
                   <div className="flex items-center space-x-3 mb-3">

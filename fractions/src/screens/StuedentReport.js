@@ -18,7 +18,7 @@ import {
 
 const logo = process.env.PUBLIC_URL + "/logo.png";
 
-export default function StudentReport({ student, onNavigate }) {
+export default function StudentReport({ student, section, onNavigate }) {
   // Safety check for student prop
   if (!student) {
     return (
@@ -234,7 +234,13 @@ export default function StudentReport({ student, onNavigate }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         {/* Back Button */}
         <button
-          onClick={() => onNavigate && onNavigate("detailedreport", student)}
+          onClick={() =>
+            onNavigate &&
+            onNavigate("detailedreport", {
+              id: student.section_id,
+              name: student.sections?.name,
+            })
+          }
           className="flex items-center space-x-2 text-orange-600 hover:text-orange-700 font-semibold mb-6 transform hover:translate-x-1 transition-all"
         >
           <ChevronLeft size={24} />
