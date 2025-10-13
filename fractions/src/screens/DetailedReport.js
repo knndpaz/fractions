@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { supabase } from "../supabase"; // Add this import
+import { supabase } from "../supabase";
 import {
   Home,
   BarChart3,
@@ -25,10 +25,15 @@ export default function DetailedReport({ section, onNavigate }) {
   const [filterStatus, setFilterStatus] = useState("all");
 
   useEffect(() => {
-    // Define async function inside useEffect
+    // Safety check: only fetch if section exists
+    if (!section || !section.id) {
+      console.error("Section prop is missing or invalid");
+      setLoading(false);
+      return;
+    }
+
     const fetchData = async () => {
       try {
-        // Load students in this section
         const { data: studentsData } = await supabase
           .from("students")
           .select("*, sections(name)")
@@ -36,14 +41,16 @@ export default function DetailedReport({ section, onNavigate }) {
 
         setStudents(studentsData || []);
 
-        // Load game progress
         const studentIds = studentsData?.map((s) => s.id) || [];
-        const { data: progressData } = await supabase
-          .from("game_progress")
-          .select("*")
-          .in("student_id", studentIds);
 
-        setGameProgress(progressData || []);
+        if (studentIds.length > 0) {
+          const { data: progressData } = await supabase
+            .from("game_progress")
+            .select("*")
+            .in("student_id", studentIds);
+
+          setGameProgress(progressData || []);
+        }
       } catch (error) {
         console.error("Error fetching data:", error);
       } finally {
@@ -51,9 +58,8 @@ export default function DetailedReport({ section, onNavigate }) {
       }
     };
 
-    // Call the async function
     fetchData();
-  }, [section.id]); // Add section.id as dependency
+  }, [section?.id]); // Added optional chaining here
 
   const getStudentProgress = (studentId) => {
     return (
@@ -174,8 +180,33 @@ export default function DetailedReport({ section, onNavigate }) {
     return `${diffDays} days ago`;
   };
 
+  // Safety check: show error if no section
+  if (!section) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md">
+          <AlertCircle className="text-red-500 mx-auto mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-gray-800 text-center mb-2">
+            No Section Selected
+          </h2>
+          <p className="text-gray-600 text-center mb-6">
+            Please select a section to view detailed reports.
+          </p>
+          <button
+            onClick={() => onNavigate && onNavigate("reports")}
+            className="w-full bg-orange-500 text-white py-3 rounded-xl font-semibold hover:bg-orange-600 transition-all"
+          >
+            <ChevronLeft size={24} />
+            <span>Go to Reports</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Navbar */}
       <nav className="bg-gradient-to-r from-orange-500 to-orange-600 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
@@ -247,7 +278,9 @@ export default function DetailedReport({ section, onNavigate }) {
         </div>
       </nav>
 
+      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {/* Back Button & Title */}
         <div className="mb-6">
           <button
             onClick={() => onNavigate && onNavigate("reports")}
@@ -257,12 +290,13 @@ export default function DetailedReport({ section, onNavigate }) {
             <span>Back to Reports</span>
           </button>
           <h1 className="text-3xl sm:text-4xl font-bold text-gray-800 text-center">
-            {section?.name || "Section Details"}
+            {section.name}
           </h1>
         </div>
 
+        {/* Summary Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
+          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 transform hover:scale-105 transition-all">
             <div className="flex flex-col items-center">
               <div className="bg-blue-100 rounded-xl p-3 mb-3">
                 <Users className="text-blue-600" size={24} />
@@ -276,7 +310,7 @@ export default function DetailedReport({ section, onNavigate }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
+          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 transform hover:scale-105 transition-all">
             <div className="flex flex-col items-center">
               <div className="bg-purple-100 rounded-xl p-3 mb-3">
                 <Clock className="text-purple-600" size={24} />
@@ -290,7 +324,7 @@ export default function DetailedReport({ section, onNavigate }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
+          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 transform hover:scale-105 transition-all">
             <div className="flex flex-col items-center">
               <div className="bg-green-100 rounded-xl p-3 mb-3">
                 <Target className="text-green-600" size={24} />
@@ -304,7 +338,7 @@ export default function DetailedReport({ section, onNavigate }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
+          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 transform hover:scale-105 transition-all">
             <div className="flex flex-col items-center">
               <div className="bg-orange-100 rounded-xl p-3 mb-3">
                 <TrendingUp className="text-orange-600" size={24} />
@@ -318,7 +352,7 @@ export default function DetailedReport({ section, onNavigate }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
+          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 transform hover:scale-105 transition-all">
             <div className="flex flex-col items-center">
               <div className="bg-indigo-100 rounded-xl p-3 mb-3">
                 <Activity className="text-indigo-600" size={24} />
@@ -333,6 +367,7 @@ export default function DetailedReport({ section, onNavigate }) {
           </div>
         </div>
 
+        {/* Level Performance Analysis */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
           <h2 className="text-2xl font-bold text-gray-800 mb-6">
             Level Performance Analysis
@@ -341,7 +376,7 @@ export default function DetailedReport({ section, onNavigate }) {
             {levelStats.map((level, index) => (
               <div
                 key={index}
-                className="border-l-4 bg-gray-50 rounded-lg p-6"
+                className="border-l-4 bg-gray-50 rounded-lg p-6 hover:shadow-lg transition-all"
                 style={{ borderColor: level.color }}
               >
                 <h3 className="font-bold text-lg mb-4">{level.title}</h3>
@@ -385,6 +420,7 @@ export default function DetailedReport({ section, onNavigate }) {
           </div>
         </div>
 
+        {/* Recommendations */}
         <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl shadow-lg p-6 mb-8">
           <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center">
             <Bell className="mr-2 text-blue-600" size={24} />
@@ -456,9 +492,25 @@ export default function DetailedReport({ section, onNavigate }) {
                 </div>
               </div>
             )}
+
+            {gameProgress.length === 0 && (
+              <div className="flex items-start space-x-3 bg-white rounded-lg p-4">
+                <AlertCircle
+                  className="text-gray-400 flex-shrink-0 mt-1"
+                  size={20}
+                />
+                <div>
+                  <span className="text-gray-600">
+                    No student activity data available yet. Students need to
+                    complete game sessions to generate insights.
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Individual Student Progress */}
         <div className="bg-white rounded-2xl shadow-lg p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
             <h2 className="text-2xl font-bold text-gray-800">
@@ -498,6 +550,7 @@ export default function DetailedReport({ section, onNavigate }) {
             </div>
           </div>
 
+          {/* Mobile View */}
           <div className="block lg:hidden space-y-4">
             {filteredStudents.map((student) => {
               const progress = getStudentProgress(student.id);
@@ -563,6 +616,7 @@ export default function DetailedReport({ section, onNavigate }) {
             })}
           </div>
 
+          {/* Desktop Table View */}
           <div className="hidden lg:block overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">

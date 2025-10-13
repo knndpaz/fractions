@@ -13,12 +13,36 @@ import {
   Calendar,
   Target,
   Award,
+  AlertCircle,
 } from "lucide-react";
 
 const logo = process.env.PUBLIC_URL + "/logo.png";
 
 export default function StudentReport({ student, onNavigate }) {
-  // Dummy data for demonstration
+  // Safety check for student prop
+  if (!student) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md">
+          <AlertCircle className="text-red-500 mx-auto mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-gray-800 text-center mb-2">
+            No Student Selected
+          </h2>
+          <p className="text-gray-600 text-center mb-6">
+            Please select a student to view their detailed report.
+          </p>
+          <button
+            onClick={() => onNavigate && onNavigate("reports")}
+            className="w-full bg-orange-500 text-white py-3 rounded-xl font-semibold hover:bg-orange-600 transition-all"
+          >
+            Go to Reports
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Dummy data for demonstration - In real app, fetch this based on student.id
   const summary = [
     {
       icon: Trophy,
@@ -150,6 +174,12 @@ export default function StudentReport({ student, onNavigate }) {
     return "bg-red-500";
   };
 
+  // Get student name with fallback
+  const studentName = student.name || "Unknown Student";
+  const studentSection = student.sections?.name || "Unknown Section";
+  const studentId = student.id || "N/A";
+  const studentEmail = student.email || "No email";
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Modern Navbar */}
@@ -204,11 +234,11 @@ export default function StudentReport({ student, onNavigate }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         {/* Back Button */}
         <button
-          onClick={() => onNavigate && onNavigate("detailedreport")}
+          onClick={() => onNavigate && onNavigate("detailedreport", student)}
           className="flex items-center space-x-2 text-orange-600 hover:text-orange-700 font-semibold mb-6 transform hover:translate-x-1 transition-all"
         >
           <ChevronLeft size={24} />
-          <span>Back to Reports</span>
+          <span>Back to Section Details</span>
         </button>
 
         {/* Student Info Card */}
@@ -216,19 +246,18 @@ export default function StudentReport({ student, onNavigate }) {
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-center space-x-4">
               <img
-                src="https://ui-avatars.com/api/?name=Justine+Nabunturan&background=3b82f6&color=fff&size=64"
+                src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
+                  studentName
+                )}&background=3b82f6&color=fff&size=64`}
                 alt="Student"
                 className="w-16 h-16 rounded-full border-4 border-blue-100"
               />
               <div>
                 <h1 className="text-2xl font-bold text-gray-800">
-                  Justine Nabunturan
+                  {studentName}
                 </h1>
                 <p className="text-gray-500 text-sm mt-1">
-                  Grade 4 • Rizal Section • Student ID: 2024-001 •{" "}
-                  <span className="text-green-600 font-semibold">
-                    ● Online Now
-                  </span>
+                  {studentSection} • Student ID: {studentId} • {studentEmail}
                 </p>
               </div>
             </div>
@@ -378,9 +407,9 @@ export default function StudentReport({ student, onNavigate }) {
               </div>
 
               <p className="text-center text-gray-600 text-sm">
-                Justine is performing exceptionally well across all levels. She
-                shows strong understanding of fraction concepts and maintains
-                high accuracy rates.
+                {studentName} is performing exceptionally well across all
+                levels. Shows strong understanding of fraction concepts and
+                maintains high accuracy rates.
               </p>
             </div>
           </div>
