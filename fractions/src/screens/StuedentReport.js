@@ -1,36 +1,135 @@
 import React from "react";
+import {
+  Home,
+  BarChart3,
+  ChevronDown,
+  ChevronLeft,
+  Trophy,
+  Percent,
+  Clock,
+  BookOpen,
+  TrendingUp,
+  Zap,
+  Calendar,
+  Target,
+  Award,
+  AlertCircle,
+} from "lucide-react";
 
 const logo = process.env.PUBLIC_URL + "/logo.png";
-const iconHome = process.env.PUBLIC_URL + "/home.png";
-const iconReports = process.env.PUBLIC_URL + "/reports.png";
-const iconDropdown = process.env.PUBLIC_URL + "/dropdown.png";
-const iconBack = process.env.PUBLIC_URL + "/chevron-left.png";
-const iconTrophy = process.env.PUBLIC_URL + "/progress.png";
-const iconPercent = process.env.PUBLIC_URL + "/reports.png";
-const iconTime = process.env.PUBLIC_URL + "/game.png";
-const iconBar = process.env.PUBLIC_URL + "/box.png";
 
-export default function StuedentReport({ student, onNavigate }) {
-  // Dummy data for demonstration
+export default function StudentReport({ student, section, onNavigate }) {
+  // Safety check for student prop
+  if (!student) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md">
+          <AlertCircle className="text-red-500 mx-auto mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-gray-800 text-center mb-2">
+            No Student Selected
+          </h2>
+          <p className="text-gray-600 text-center mb-6">
+            Please select a student to view their detailed report.
+          </p>
+          <button
+            onClick={() => onNavigate && onNavigate("reports")}
+            className="w-full bg-orange-500 text-white py-3 rounded-xl font-semibold hover:bg-orange-600 transition-all"
+          >
+            Go to Reports
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Dummy data for demonstration - In real app, fetch this based on student.id
   const summary = [
-    { icon: iconTrophy, label: "Overall Progress", value: "95%" },
-    { icon: iconPercent, label: "Avg Accuracy", value: "80%" },
-    { icon: iconTime, label: "Total Time", value: "2h 15m" },
-    { icon: iconBar, label: "Sessions", value: 12 },
+    {
+      icon: Trophy,
+      label: "Overall Progress",
+      value: "95%",
+      color: "from-yellow-400 to-orange-500",
+    },
+    {
+      icon: Percent,
+      label: "Avg Accuracy",
+      value: "80%",
+      color: "from-green-400 to-emerald-500",
+    },
+    {
+      icon: Clock,
+      label: "Total Time",
+      value: "2h 15m",
+      color: "from-blue-400 to-cyan-500",
+    },
+    {
+      icon: BookOpen,
+      label: "Sessions",
+      value: 12,
+      color: "from-purple-400 to-pink-500",
+    },
   ];
 
   const levelProgress = [
-    { level: 1, title: "Basic Addition", desc: "Simple fraction addition problems", percent: 100, status: "Completed", color: "#19c37d" },
-    { level: 2, title: "Basic Subtraction", desc: "Simple fraction subtraction problems", percent: 100, status: "Completed", color: "#19c37d" },
-    { level: 3, title: "Mixed Operations", desc: "Addition and subtraction combined", percent: 85, status: "In Progress", color: "#ffa726" },
-    { level: 4, title: "Complex Fractions", desc: "Advanced fraction operations", percent: 45, status: "In Progress", color: "#ff2d2d" },
+    {
+      level: 1,
+      title: "Basic Addition",
+      desc: "Simple fraction addition problems",
+      percent: 100,
+      status: "Completed",
+      color: "green",
+    },
+    {
+      level: 2,
+      title: "Basic Subtraction",
+      desc: "Simple fraction subtraction problems",
+      percent: 100,
+      status: "Completed",
+      color: "green",
+    },
+    {
+      level: 3,
+      title: "Mixed Operations",
+      desc: "Addition and subtraction combined",
+      percent: 85,
+      status: "In Progress",
+      color: "orange",
+    },
+    {
+      level: 4,
+      title: "Complex Fractions",
+      desc: "Advanced fraction operations",
+      percent: 45,
+      status: "In Progress",
+      color: "red",
+    },
   ];
 
   const performanceTrends = [
-    { label: "Accuracy Improvement", value: "+12%", color: "#19c37d" },
-    { label: "Avg Session Time", value: "15min", color: "#3b82f6" },
-    { label: "Sessions This Week", value: 3, color: "#ffa726" },
-    { label: "First Try Success", value: "92%", color: "#ff2d2d" },
+    {
+      label: "Accuracy Improvement",
+      value: "+12%",
+      color: "text-green-600",
+      bgColor: "bg-green-100",
+    },
+    {
+      label: "Avg Session Time",
+      value: "15min",
+      color: "text-blue-600",
+      bgColor: "bg-blue-100",
+    },
+    {
+      label: "Sessions This Week",
+      value: 3,
+      color: "text-orange-600",
+      bgColor: "bg-orange-100",
+    },
+    {
+      label: "First Try Success",
+      value: "92%",
+      color: "text-purple-600",
+      bgColor: "bg-purple-100",
+    },
   ];
 
   const sessionStats = [
@@ -54,7 +153,7 @@ export default function StuedentReport({ student, onNavigate }) {
     },
     {
       time: "Yesterday",
-      title: "Earned \"Speed Demon\" Achievement",
+      title: 'Earned "Speed Demon" Achievement',
       desc: "Solved 10 problems in under 2 minutes each",
     },
     {
@@ -69,230 +168,342 @@ export default function StuedentReport({ student, onNavigate }) {
     },
   ];
 
-  const styles = {
-    page: { background: "#e0e0e0", minHeight: "100vh", fontFamily: "Poppins, Arial, sans-serif", overflowY: "auto" },
-    navbar: { background: "#f68c2e", display: "flex", alignItems: "center", padding: "0 32px", height: 80, justifyContent: "space-between" },
-    logo: { height: 64, marginRight: 24 },
-    navLinks: { display: "flex", alignItems: "center", gap: 32 },
-    navBtn: { background: "#fff", borderRadius: 16, padding: "8px 24px", display: "flex", alignItems: "center", gap: 8, fontWeight: 600, color: "#f68c2e", border: "none", fontSize: 18, cursor: "pointer" },
-    navIcon: { height: 24, width: 24, display: "flex", alignItems: "center" },
-    userInfo: { display: "flex", alignItems: "center", gap: 12, color: "#fff", fontSize: 14 },
-    userAvatar: { width: 36, height: 36, borderRadius: "50%", objectFit: "cover", border: "2px solid #fff" },
-    dropdown: { height: 32, width: 32, color: "#fff", marginLeft: 16, cursor: "pointer", display: "flex", alignItems: "center" },
-    backBtn: { display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", color: "#f68c2e", fontWeight: 600, fontSize: 18, cursor: "pointer", margin: "24px 0 0 24px" },
-    studentCard: { background: "#fff", borderRadius: 16, boxShadow: "0 2px 8px #0001", padding: 24, margin: "24px auto 0 auto", maxWidth: 1200, display: "flex", alignItems: "center", justifyContent: "space-between" },
-    studentInfo: { display: "flex", alignItems: "center", gap: 16 },
-    studentAvatar: { width: 48, height: 48, borderRadius: "50%", objectFit: "cover" },
-    studentName: { fontWeight: 700, fontSize: 22 },
-    studentMeta: { color: "#888", fontSize: 15 },
-    updated: { color: "#888", fontSize: 13 },
-    summaryRow: { display: "flex", gap: 24, margin: "32px 0 0 0", justifyContent: "center" },
-    summaryCard: { flex: 1, background: "#fff", borderRadius: 16, padding: 20, display: "flex", alignItems: "center", gap: 16, minWidth: 160, boxShadow: "0 2px 8px #0001", flexDirection: "column" },
-    summaryIcon: { height: 32, width: 32 },
-    summaryLabel: { fontWeight: 500, fontSize: 16, color: "#222", marginTop: 8 },
-    summaryValue: { fontWeight: 700, fontSize: 24, color: "#222" },
-    mainGrid: { display: "flex", gap: 24, margin: "32px auto", maxWidth: 1200 },
-    leftCol: { flex: 1.5, background: "#fff", borderRadius: 16, padding: 32, boxShadow: "0 2px 8px #0001", minWidth: 340 },
-    rightCol: { flex: 1, background: "#fff", borderRadius: 16, padding: 32, boxShadow: "0 2px 8px #0001", minWidth: 340, display: "flex", flexDirection: "column", alignItems: "center" },
-    sectionTitle: { fontWeight: 700, fontSize: 20, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 },
-    levelRow: { display: "flex", flexDirection: "column", gap: 18 },
-    levelItem: { display: "flex", alignItems: "center", gap: 16, borderBottom: "1px solid #eee", padding: "16px 0" },
-    levelNum: color => ({ background: color, color: "#fff", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 18 }),
-    levelInfo: { flex: 1 },
-    levelTitleText: { fontWeight: 600, fontSize: 16 },
-    levelDesc: { color: "#888", fontSize: 14 },
-    levelPercent: { fontWeight: 700, fontSize: 18, marginRight: 12 },
-    levelStatus: color => ({ background: color, color: "#fff", borderRadius: 8, padding: "4px 12px", fontWeight: 600, fontSize: 13 }),
-    perfTitle: { fontWeight: 700, fontSize: 20, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 },
-    perfRow: { display: "flex", gap: 32, marginBottom: 16 },
-    perfCol: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center" },
-    perfValue: color => ({ color, fontWeight: 700, fontSize: 22 }),
-    perfLabel: { color: "#888", fontSize: 14, marginTop: 4 },
-    perfSmall: { color: "#888", fontSize: 13 },
-    perfBig: { color: "#ff2d2d", fontWeight: 700, fontSize: 22 },
-    perfGreen: { color: "#19c37d", fontWeight: 700, fontSize: 22 },
-    perfBlue: { color: "#3b82f6", fontWeight: 700, fontSize: 22 },
-    perfOrange: { color: "#ffa726", fontWeight: 700, fontSize: 22 },
-    perfPink: { color: "#ff2d2d", fontWeight: 700, fontSize: 22 },
-    statsCard: { background: "#fff", borderRadius: 16, boxShadow: "0 2px 8px #0001", padding: 32, margin: "32px auto", maxWidth: 600, minWidth: 340 },
-    statsTitle: { fontWeight: 700, fontSize: 20, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 },
-    statsRow: { display: "flex", flexDirection: "column", gap: 8, fontSize: 16 },
-    statsLabel: { color: "#888" },
-    statsValue: { fontWeight: 700, fontSize: 16, color: "#222", marginLeft: 8 },
-    activityCard: { background: "#faf9fb", borderRadius: 16, boxShadow: "0 2px 8px #0001", padding: 32, margin: "32px auto", maxWidth: 1200 },
-    activityTitle: { fontWeight: 700, fontSize: 20, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 },
-    timeline: { borderLeft: "3px solid #3b82f6", paddingLeft: 24, marginLeft: 8 },
-    timelineItem: { marginBottom: 28, position: "relative" },
-    timelineDot: { position: "absolute", left: -13, top: 2, width: 12, height: 12, borderRadius: "50%", background: "#3b82f6" },
-    timelineTime: { color: "#888", fontSize: 13, marginBottom: 2 },
-    timelineTitle: { fontWeight: 600, fontSize: 15 },
-    timelineDesc: { color: "#888", fontSize: 14 },
-    perfChartWrap: { marginTop: 24, display: "flex", flexDirection: "column", alignItems: "center" },
-    perfChart: { width: 180, height: 180, borderRadius: "50%", background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
-    perfChartRing: { position: "absolute", top: 0, left: 0, width: 180, height: 180, borderRadius: "50%", border: "16px solid #3b82f6", borderTopColor: "#e0e0e0", transform: "rotate(-45deg)" },
-    perfChartText: { position: "absolute", top: 0, left: 0, width: 180, height: 180, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 38, color: "#222" },
-    perfChartLabel: { marginTop: 16, fontWeight: 700, fontSize: 18, color: "#19c37d" },
-    perfChartDesc: { marginTop: 8, color: "#888", fontSize: 15, textAlign: "center" },
+  const getLevelColor = (color) => {
+    if (color === "green") return "bg-green-500";
+    if (color === "orange") return "bg-orange-500";
+    return "bg-red-500";
   };
 
+  // Get student name with fallback
+  const studentName = student.name || "Unknown Student";
+  const studentSection = student.sections?.name || "Unknown Section";
+  const studentId = student.id || "N/A";
+  const studentEmail = student.email || "No email";
+
   return (
-    <div style={styles.page}>
-      {/* Navbar */}
-      <div style={styles.navbar}>
-        <img src={logo} alt="Logo" style={styles.logo} />
-        <div style={styles.navLinks}>
-          <button style={styles.navBtn} onClick={() => onNavigate && onNavigate('home')}>
-            <span style={styles.navIcon}><img src={iconHome} alt="Home" style={{ height: 24, width: 24 }} /></span> Home
-          </button>
-          <button style={styles.navBtn} onClick={() => onNavigate && onNavigate('reports')}>
-            <span style={styles.navIcon}><img src={iconReports} alt="Reports" style={{ height: 24, width: 24 }} /></span> Reports
-          </button>
-        </div>
-        <div style={styles.userInfo}>
-          <div>
-            Justine Nabunturan
-            <div style={{ fontSize: 12, color: "#ffe" }}>Admin</div>
-          </div>
-          <img
-            src="https://ui-avatars.com/api/?name=Justine+Nabunturan&background=F68C2E&color=fff"
-            alt="User"
-            style={styles.userAvatar}
-          />
-          <span style={styles.dropdown}><img src={iconDropdown} alt="Dropdown" style={{ height: 24, width: 24 }} /></span>
-        </div>
-      </div>
-
-      {/* Back Button and Student Info */}
-      <button style={styles.backBtn} onClick={() => onNavigate && onNavigate('detailedreport')}>
-        <img src={iconBack} alt="Back" style={{ height: 24, width: 24 }} /> Back
-      </button>
-      <div style={styles.studentCard}>
-        <div style={styles.studentInfo}>
-          <img
-            src="https://ui-avatars.com/api/?name=Justine+Nabunturan&background=3b82f6&color=fff"
-            alt="Student"
-            style={styles.studentAvatar}
-          />
-          <div>
-            <div style={styles.studentName}>Justine Nabunturan</div>
-            <div style={styles.studentMeta}>
-              Grade 4 – Rizal Section • Student ID: 2024-001 • Online Now
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Modern Navbar */}
+      <nav className="bg-gradient-to-r from-orange-500 to-orange-600 shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between">
+            {/* Logo */}
+            <div className="flex items-center space-x-4">
+              <div className="bg-white rounded-2xl p-2 shadow-lg transform hover:rotate-6 transition-transform duration-300">
+                <img src={logo} alt="Logo" className="h-12 w-12" />
+              </div>
             </div>
-          </div>
-        </div>
-        <div style={styles.updated}>Last Updated: 5 minutes ago</div>
-      </div>
 
-      {/* Summary Row */}
-      <div style={styles.summaryRow}>
-        {summary.map((item, idx) => (
-          <div key={idx} style={styles.summaryCard}>
-            <img src={item.icon} alt={item.label} style={styles.summaryIcon} />
-            <div style={styles.summaryLabel}>{item.label}</div>
-            <div style={styles.summaryValue}>{item.value}</div>
-          </div>
-        ))}
-      </div>
+            {/* Nav Links */}
+            <div className="hidden md:flex items-center space-x-4">
+              <button
+                onClick={() => onNavigate && onNavigate("home")}
+                className="flex items-center space-x-2 bg-white text-orange-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg transform hover:scale-105 transition-all duration-300"
+              >
+                <Home size={20} />
+                <span>Home</span>
+              </button>
+              <button
+                onClick={() => onNavigate && onNavigate("reports")}
+                className="flex items-center space-x-2 bg-orange-400 text-white px-6 py-3 rounded-xl font-semibold hover:bg-orange-300 transform hover:scale-105 transition-all duration-300"
+              >
+                <BarChart3 size={20} />
+                <span>Reports</span>
+              </button>
 
-      {/* Main Grid */}
-      <div style={styles.mainGrid}>
-        {/* Level Progress */}
-        <div style={styles.leftCol}>
-          <div style={styles.sectionTitle}>
-            <span role="img" aria-label="progress">📊</span> Level Progress
-          </div>
-          <div style={styles.levelRow}>
-            {levelProgress.map((lvl, idx) => (
-              <div key={idx} style={styles.levelItem}>
-                <div style={styles.levelNum(lvl.color)}>{lvl.level}</div>
-                <div style={styles.levelInfo}>
-                  <div style={styles.levelTitleText}>{lvl.title}</div>
-                  <div style={styles.levelDesc}>{lvl.desc}</div>
+              {/* User Menu */}
+              <div className="flex items-center space-x-3 bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-xl transition-all duration-300">
+                <div className="text-right hidden lg:block">
+                  <div className="text-white font-semibold text-sm">
+                    Justine Nabunturan
+                  </div>
+                  <div className="text-orange-100 text-xs">Admin</div>
                 </div>
-                <div style={styles.levelPercent}>{lvl.percent}%</div>
-                <div style={styles.levelStatus(lvl.color)}>{lvl.status}</div>
+                <img
+                  src="https://ui-avatars.com/api/?name=Justine+Nabunturan&background=F68C2E&color=fff"
+                  alt="User"
+                  className="w-10 h-10 rounded-full border-2 border-white"
+                />
+                <ChevronDown size={20} className="text-white hidden lg:block" />
               </div>
-            ))}
-          </div>
-        </div>
-        {/* Overall Performance */}
-        <div style={styles.rightCol}>
-          <div style={styles.sectionTitle}>
-            <span role="img" aria-label="performance">📈</span> Overall Performance
-          </div>
-          <div style={styles.perfChartWrap}>
-            <div style={styles.perfChart}>
-              <div style={styles.perfChartRing}></div>
-              <div style={styles.perfChartText}>95%</div>
-            </div>
-            <div style={styles.perfChartLabel}>Excellent Performance!</div>
-            <div style={styles.perfChartDesc}>
-              Justine is performing exceptionally well across all levels. She shows strong understanding of fraction concepts and maintains high accuracy rates.
             </div>
           </div>
         </div>
-      </div>
+      </nav>
 
-      {/* Performance Trends & Session Stats */}
-      <div style={{ display: "flex", gap: 24, margin: "32px auto", maxWidth: 1200 }}>
-        {/* Performance Trends */}
-        <div style={{ flex: 1 }}>
-          <div style={styles.statsCard}>
-            <div style={styles.statsTitle}>
-              <span role="img" aria-label="trends">📈</span> Performance Trends
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        {/* Back Button */}
+        <button
+          onClick={() =>
+            onNavigate &&
+            onNavigate("detailedreport", {
+              id: student.section_id,
+              name: student.sections?.name,
+            })
+          }
+          className="flex items-center space-x-2 text-orange-600 hover:text-orange-700 font-semibold mb-6 transform hover:translate-x-1 transition-all"
+        >
+          <ChevronLeft size={24} />
+          <span>Back to Section Details</span>
+        </button>
+
+        {/* Student Info Card */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center space-x-4">
+              <img
+                src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
+                  studentName
+                )}&background=3b82f6&color=fff&size=64`}
+                alt="Student"
+                className="w-16 h-16 rounded-full border-4 border-blue-100"
+              />
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">
+                  {studentName}
+                </h1>
+                <p className="text-gray-500 text-sm mt-1">
+                  {studentSection} • Student ID: {studentId} • {studentEmail}
+                </p>
+              </div>
             </div>
-            <div style={styles.perfRow}>
-              <div style={styles.perfCol}>
-                <div style={styles.perfGreen}>{performanceTrends[0].value}</div>
-                <div style={styles.perfLabel}>{performanceTrends[0].label}</div>
-              </div>
-              <div style={styles.perfCol}>
-                <div style={styles.perfBlue}>{performanceTrends[1].value}</div>
-                <div style={styles.perfLabel}>{performanceTrends[1].label}</div>
-              </div>
-              <div style={styles.perfCol}>
-                <div style={styles.perfOrange}>{performanceTrends[2].value}</div>
-                <div style={styles.perfLabel}>{performanceTrends[2].label}</div>
-              </div>
-              <div style={styles.perfCol}>
-                <div style={styles.perfPink}>{performanceTrends[3].value}</div>
-                <div style={styles.perfLabel}>{performanceTrends[3].label}</div>
-              </div>
+            <div className="text-sm text-gray-500">
+              Last Updated: <span className="font-semibold">5 minutes ago</span>
             </div>
           </div>
         </div>
-        {/* Session Statistics */}
-        <div style={{ flex: 1 }}>
-          <div style={styles.statsCard}>
-            <div style={styles.statsTitle}>
-              <span role="img" aria-label="stats">⚡</span> Session Statistics
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {summary.map((item, idx) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={idx}
+                className="bg-white rounded-2xl shadow-lg p-6 transform hover:scale-105 transition-all duration-300"
+              >
+                <div
+                  className={`w-16 h-16 bg-gradient-to-br ${item.color} rounded-xl flex items-center justify-center mb-4`}
+                >
+                  <Icon className="text-white" size={32} />
+                </div>
+                <div className="text-gray-600 text-sm mb-1">{item.label}</div>
+                <div className="text-3xl font-bold text-gray-800">
+                  {item.value}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Main Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          {/* Level Progress */}
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow-lg p-6">
+            <div className="flex items-center space-x-3 mb-6">
+              <div className="bg-blue-100 rounded-xl p-3">
+                <Target className="text-blue-600" size={24} />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-800">
+                Level Progress
+              </h2>
             </div>
-            <div style={styles.statsRow}>
+
+            <div className="space-y-4">
+              {levelProgress.map((lvl, idx) => (
+                <div
+                  key={idx}
+                  className="border-2 border-gray-100 rounded-xl p-4 hover:border-orange-300 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={`${getLevelColor(
+                        lvl.color
+                      )} text-white rounded-full w-12 h-12 flex items-center justify-center font-bold text-xl flex-shrink-0`}
+                    >
+                      {lvl.level}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-gray-800 mb-1">
+                        {lvl.title}
+                      </div>
+                      <div className="text-sm text-gray-500">{lvl.desc}</div>
+                      <div className="mt-2 bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div
+                          className={`${getLevelColor(
+                            lvl.color
+                          )} h-full rounded-full transition-all duration-500`}
+                          style={{ width: `${lvl.percent}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                      <div className="font-bold text-xl text-gray-800">
+                        {lvl.percent}%
+                      </div>
+                      <span
+                        className={`${getLevelColor(
+                          lvl.color
+                        )} text-white px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap`}
+                      >
+                        {lvl.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Overall Performance */}
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <div className="flex items-center space-x-3 mb-6">
+              <div className="bg-green-100 rounded-xl p-3">
+                <TrendingUp className="text-green-600" size={24} />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-800">Performance</h2>
+            </div>
+
+            <div className="flex flex-col items-center">
+              <div className="relative w-48 h-48 mb-6">
+                <svg className="transform -rotate-90 w-48 h-48">
+                  <circle
+                    cx="96"
+                    cy="96"
+                    r="88"
+                    stroke="#e5e7eb"
+                    strokeWidth="16"
+                    fill="none"
+                  />
+                  <circle
+                    cx="96"
+                    cy="96"
+                    r="88"
+                    stroke="url(#gradient)"
+                    strokeWidth="16"
+                    fill="none"
+                    strokeDasharray={`${2 * Math.PI * 88 * 0.95} ${
+                      2 * Math.PI * 88
+                    }`}
+                    strokeLinecap="round"
+                  />
+                  <defs>
+                    <linearGradient
+                      id="gradient"
+                      x1="0%"
+                      y1="0%"
+                      x2="100%"
+                      y2="100%"
+                    >
+                      <stop offset="0%" stopColor="#10b981" />
+                      <stop offset="100%" stopColor="#3b82f6" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-5xl font-bold text-gray-800">95%</span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 mb-3">
+                <Award className="text-green-600" size={24} />
+                <span className="text-xl font-bold text-green-600">
+                  Excellent Performance!
+                </span>
+              </div>
+
+              <p className="text-center text-gray-600 text-sm">
+                {studentName} is performing exceptionally well across all
+                levels. Shows strong understanding of fraction concepts and
+                maintains high accuracy rates.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Performance Trends & Session Stats */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          {/* Performance Trends */}
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <div className="flex items-center space-x-3 mb-6">
+              <div className="bg-purple-100 rounded-xl p-3">
+                <TrendingUp className="text-purple-600" size={24} />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-800">
+                Performance Trends
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {performanceTrends.map((trend, idx) => (
+                <div
+                  key={idx}
+                  className={`${trend.bgColor} rounded-xl p-4 text-center`}
+                >
+                  <div className={`text-3xl font-bold ${trend.color} mb-2`}>
+                    {trend.value}
+                  </div>
+                  <div className="text-sm text-gray-600">{trend.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Session Statistics */}
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <div className="flex items-center space-x-3 mb-6">
+              <div className="bg-orange-100 rounded-xl p-3">
+                <Zap className="text-orange-600" size={24} />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-800">
+                Session Statistics
+              </h2>
+            </div>
+
+            <div className="space-y-3">
               {sessionStats.map((stat, idx) => (
-                <div key={idx}>
-                  <span style={styles.statsLabel}>{stat.label}:</span>
-                  <span style={styles.statsValue}>{stat.value}</span>
+                <div
+                  key={idx}
+                  className="flex justify-between items-center p-3 bg-gray-50 rounded-lg"
+                >
+                  <span className="text-gray-600">{stat.label}</span>
+                  <span className="font-bold text-gray-800">{stat.value}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Recent Activity */}
-      <div style={styles.activityCard}>
-        <div style={styles.activityTitle}>
-          <span role="img" aria-label="activity">🗓️</span> Recent Activity
-        </div>
-        <div style={styles.timeline}>
-          {recentActivity.map((item, idx) => (
-            <div key={idx} style={styles.timelineItem}>
-              <div style={styles.timelineDot}></div>
-              <div style={styles.timelineTime}>{item.time}</div>
-              <div style={styles.timelineTitle}>{item.title}</div>
-              <div style={styles.timelineDesc}>{item.desc}</div>
+        {/* Recent Activity */}
+        <div className="bg-white rounded-2xl shadow-lg p-6">
+          <div className="flex items-center space-x-3 mb-6">
+            <div className="bg-indigo-100 rounded-xl p-3">
+              <Calendar className="text-indigo-600" size={24} />
             </div>
-          ))}
+            <h2 className="text-2xl font-bold text-gray-800">
+              Recent Activity
+            </h2>
+          </div>
+
+          <div className="space-y-6">
+            {recentActivity.map((item, idx) => (
+              <div key={idx} className="flex gap-4">
+                <div className="flex flex-col items-center">
+                  <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                  {idx < recentActivity.length - 1 && (
+                    <div className="w-0.5 h-full bg-blue-200 mt-2"></div>
+                  )}
+                </div>
+                <div className="flex-1 pb-6">
+                  <div className="text-sm text-gray-500 mb-1">{item.time}</div>
+                  <div className="font-semibold text-gray-800 mb-1">
+                    {item.title}
+                  </div>
+                  <div className="text-sm text-gray-600">{item.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
