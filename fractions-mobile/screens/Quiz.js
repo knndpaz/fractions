@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ImageBackground, StyleSheet, View, Text, TouchableOpacity, Image } from 'react-native';
 import { LevelProgress } from '../utils/levelProgress';
+import { DatabaseService, supabase } from '../supabase';
 
 export default function Quiz({ navigation, route }) {
   const [timer, setTimer] = useState(16);
@@ -138,19 +139,31 @@ export default function Quiz({ navigation, route }) {
 
   const currentQuestion = questions[levelGroup]?.[stage] || questions[1][1];
 
-  const handleAnswerPress = async (answerIndex) => {
-    const isCorrect = answerIndex === currentQuestion.correctAnswer;
+  // Ensure your handler uses the correct parameter order
+  const handleAnswerPress = async (selectedIndex) => {
+    const isCorrect = selectedIndex === currentQuestion.correctAnswer;
     
-    console.log('🎯 Answer selected:', answerIndex, 'Correct:', isCorrect);
+    console.log('🎯 Answer selected:', selectedIndex, 'Correct:', isCorrect);
     console.log('🎯 Stage:', stage, 'Level Group:', levelGroup, 'Time Remaining:', timer);
-    
-    // Record the attempt in Supabase (both correct and incorrect)
+    console.log('✅ Recording attempt in database...');
+
+    // Update local unlocks and DB via LevelProgress (correct order: levelGroup, stage)
     try {
-      console.log('✅ Recording attempt in database...');
-      const result = await LevelProgress.completeLevel(stage, levelGroup, isCorrect, timer);
+      const result = await LevelProgress.completeLevel(levelGroup, stage, isCorrect, timer);
       console.log('✅ Progress update result:', result);
-    } catch (error) {
-      console.error('❌ Error updating progress:', error);
+    } catch (e) {
+      console.warn('LevelProgress.completeLevel failed (ignored):', e?.message || e);
+    }
+
+    // Optional: direct DB call (not required if LevelProgress does it). If you keep it, use correct order.
+    try {
+      const { data } = await supabase.auth.getUser();
+      const userId = data?.user?.id;
+      if (userId) {
+        await DatabaseService.updateStudentProgress(userId, levelGroup, stage, isCorrect, timer);
+      }
+    } catch (e) {
+      console.warn('DatabaseService.updateStudentProgress failed (ignored):', e?.message || e);
     }
     
     navigation.replace('FinishScreen', { 

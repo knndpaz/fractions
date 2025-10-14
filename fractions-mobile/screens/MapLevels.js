@@ -1,33 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ImageBackground, StyleSheet, View, TouchableOpacity, Text, Image, Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { LevelProgress } from '../utils/levelProgress';
 
 export default function MapLevels({ navigation, route }) {
+  const levelGroup = Number(route?.params?.levelGroup || 1);
   const [unlockedLevels, setUnlockedLevels] = useState([1]);
-  const levelGroup = route?.params?.levelGroup || 1; // Get which level group (1, 2, or 3)
+
+  const loadUnlocked = useCallback(async () => {
+    const list = await LevelProgress.getCompletedLevels(levelGroup);
+    setUnlockedLevels(list);
+  }, [levelGroup]);
 
   useEffect(() => {
-    loadProgress();
-    
-    // Listen for navigation events to refresh progress when coming back from quiz
-    const unsubscribe = navigation.addListener('focus', () => {
-      loadProgress();
-    });
+    // initial load
+    loadUnlocked();
+  }, [loadUnlocked]);
 
-    return unsubscribe;
-  }, [navigation, levelGroup]);
+  useFocusEffect(
+    useCallback(() => {
+      // reload whenever screen gains focus (after finishing a stage or navigating back)
+      loadUnlocked();
+    }, [loadUnlocked])
+  );
 
-  const loadProgress = async () => {
-    console.log('Loading progress for level group:', levelGroup); // Debug log
-    const progress = await LevelProgress.getCompletedLevels(levelGroup);
-    console.log('Raw progress loaded:', progress); // Debug log
-    
-    // Ensure stage 1 is always unlocked
-    const progressWithStage1 = progress.includes(1) ? progress : [1, ...progress];
-    console.log('Final progress with stage 1:', progressWithStage1); // Debug log
-    
-    setUnlockedLevels(progressWithStage1);
-  };
+  const resetProgress = useCallback(async () => {
+    try {
+      const ok = await LevelProgress.resetProgress(levelGroup);
+      if (ok) {
+        await loadUnlocked(); // reload state from storage/DB
+        Alert.alert('Progress Reset', 'Progress for this level has been reset. Only stage 1 is unlocked.');
+      } else {
+        Alert.alert('Reset Failed', 'Could not reset progress. Check logs.');
+      }
+    } catch (e) {
+      console.error('Reset error:', e);
+      Alert.alert('Reset Error', e?.message || 'Unexpected error');
+    }
+  }, [levelGroup, loadUnlocked]);
 
   const handleLevelPress = (stage) => {
     console.log('Clicking stage:', stage, 'in level group:', levelGroup); // Debug log
@@ -55,21 +65,15 @@ export default function MapLevels({ navigation, route }) {
     return LevelProgress.isLevelUnlocked(stage, unlockedLevels);
   };
 
-  // Reset progress function for testing
-  const resetProgress = async () => {
-    await LevelProgress.resetProgress();
-    await loadProgress(); // Reload progress after reset
-    Alert.alert('Progress Reset', 'All progress has been reset. Only stage 1 is unlocked.');
-  };
-
   // Test function to unlock stage 2
   const testUnlockStage2 = async () => {
     console.log('🧪 Testing unlock stage 2...');
     try {
-      const result = await LevelProgress.completeLevel(1, levelGroup);
+      // Unlock stage 2 by completing stage 1 correctly in the current level group
+      const result = await LevelProgress.completeLevel(levelGroup, 1, true);
       console.log('🧪 Test result:', result);
-      await loadProgress();
-      Alert.alert('Test Complete', 'Check console logs and stage 2 should be unlocked');
+      await loadUnlocked();
+      Alert.alert('Test Complete', 'Stage 2 should now be unlocked');
     } catch (error) {
       console.error('🧪 Test error:', error);
     }
