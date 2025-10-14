@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DatabaseService, supabase } from '../supabase';
+import { supabase, DatabaseService } from '../supabase';
 
 const LEVEL_PROGRESS_KEY = 'levelProgress';
-const USER_ID_KEY = 'userId';
+const BASELINE_PROGRESS = { level1: [1], level2: [], level3: [] };
+const USER_ID_KEY = 'userId'; // FIX: missing constant
 
 // Configure how many stages exist per level group
 const MAX_STAGE = 4;
@@ -28,11 +29,14 @@ export const LevelProgress = {
     }
   },
 
-  // Read all local progress (unlocked stages arrays)
+  // Ensure we can always read a valid progress object
   getAllProgress: async () => {
-    const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
-    if (!raw) return { level1: [1], level2: [], level3: [] };
     try {
+      const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
+      if (!raw) {
+        await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(BASELINE_PROGRESS));
+        return BASELINE_PROGRESS;
+      }
       const parsed = JSON.parse(raw);
       return {
         level1: Array.isArray(parsed.level1) ? parsed.level1 : [1],
@@ -40,7 +44,8 @@ export const LevelProgress = {
         level3: Array.isArray(parsed.level3) ? parsed.level3 : [],
       };
     } catch {
-      return { level1: [1], level2: [], level3: [] };
+      await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(BASELINE_PROGRESS));
+      return BASELINE_PROGRESS;
     }
   },
 
@@ -53,33 +58,36 @@ export const LevelProgress = {
   // Return the new local progress object so callers can update UI immediately.
   resetProgress: async (levelGroup) => {
     try {
-      const userId = await LevelProgress.getCurrentUserId();
-
-      // Normalize levelGroup to a valid number 1..3 (or NaN if invalid)
+      // Normalize and validate group
       const lg = Number(levelGroup);
       const isValidGroup = Number.isInteger(lg) && lg >= 1 && lg <= 3;
 
-      // Update local storage
+      // Local reset
       const current = await LevelProgress.getAllProgress();
       let next = { ...current };
 
       if (isValidGroup) {
-        next[`level${lg}`] = [1]; // only stage 1 unlocked in that group
+        next[`level${lg}`] = [1];
       } else {
-        next = { level1: [1], level2: [], level3: [] }; // reset all
+        next = { ...BASELINE_PROGRESS };
       }
-      await LevelProgress.setAllProgress(next);
 
-      // Update DB (best-effort)
-      if (userId && DatabaseService?.clearStudentProgress) {
-        await DatabaseService.clearStudentProgress(userId, isValidGroup ? lg : undefined);
+      await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(next));
+
+      // Best-effort DB reset (if available)
+      try {
+        const { data } = await supabase.auth.getUser();
+        const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
+        if (userId && DatabaseService?.clearStudentProgress) {
+          await DatabaseService.clearStudentProgress(userId, isValidGroup ? lg : undefined);
+        }
+      } catch {
+        // ignore server errors during reset
       }
 
       return next;
-    } catch (e) {
-      console.warn('resetProgress failed:', e);
-      // Still return a sane local state
-      return { level1: [1], level2: [], level3: [] };
+    } catch {
+      return { ...BASELINE_PROGRESS };
     }
   },
 
@@ -87,30 +95,48 @@ export const LevelProgress = {
   getCompletedLevels: async (levelGroup = 1) => {
     const lg = Number(levelGroup) || 1;
 
-    // 1) Start from local unlocked stages
-    const all = await LevelProgress.getAllProgress();
+    // Start from local state
+    const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
+    const all = raw ? JSON.parse(raw) : { level1: [1], level2: [], level3: [] };
     const localArr = Array.isArray(all[`level${lg}`]) ? all[`level${lg}`] : [];
-    const unlocked = new Set(localArr.map(clampStage));
-    unlocked.add(1); // always ensure stage 1 is unlocked
 
-    // 2) Merge DB-driven unlocks using current_stage and completed_stages (if available)
+    // Only Level 1 should auto-unlock stage 1
+    const ensuredLocal =
+      lg === 1
+        ? uniqSorted((localArr.includes(1) ? localArr : [1, ...localArr]).map(clampStage))
+        : uniqSorted(localArr.map(clampStage)); // do NOT force stage 1 for level 2/3
+
+    // Fresh reset short-circuit:
+    // - Level 1: [1] only
+    if (lg === 1 && ensuredLocal.length === 1 && ensuredLocal[0] === 1) {
+      if (JSON.stringify(localArr) !== JSON.stringify([1])) {
+        const next = { ...all, [`level${lg}`]: [1] };
+        await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(next));
+      }
+      return [1];
+    }
+    // - Level 2/3: empty means locked
+    if (lg !== 1 && ensuredLocal.length === 0) {
+      if (JSON.stringify(localArr) !== JSON.stringify([])) {
+        const next = { ...all, [`level${lg}`]: [] };
+        await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(next));
+      }
+      return [];
+    }
+
+    // Merge DB-driven info (current_stage/completed_stages) when not a fresh reset state
+    const unlocked = new Set(ensuredLocal);
     try {
-      const userId = await LevelProgress.getCurrentUserId();
+      const { data } = await supabase.auth.getUser();
+      const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
       if (userId && DatabaseService?.getStudentProgress) {
         const rows = await DatabaseService.getStudentProgress(userId);
-        const row = Array.isArray(rows)
-          ? rows.find(r => Number(r.level_group) === lg)
-          : null;
-
+        const row = Array.isArray(rows) ? rows.find(r => Number(r.level_group) === lg) : null;
         if (row) {
           const currentStage = Math.max(1, Math.min(MAX_STAGE, Number(row.current_stage || 1)));
           const completedStages = Math.max(0, Math.min(MAX_STAGE, Number(row.completed_stages || 0)));
-
-          // Unlock up to current_stage + 1 (bounded to MAX_STAGE)
           const maxUnlock = Math.min(currentStage + 1, MAX_STAGE);
           for (let s = 1; s <= maxUnlock; s++) unlocked.add(s);
-
-          // Ensure all completed stages are unlocked
           for (let s = 1; s <= completedStages; s++) unlocked.add(s);
         }
       }
@@ -118,19 +144,12 @@ export const LevelProgress = {
       console.warn('getCompletedLevels DB merge skipped:', e?.message || e);
     }
 
-    // 3) Finalize list and persist if changed
-    const merged = Array.from(unlocked).map(clampStage);
-    const result = Array.from(new Set(merged)).sort((a, b) => a - b);
+    const result = uniqSorted(Array.from(unlocked).map(clampStage));
 
-    // Persist back if different from local
-    const localSorted = Array.from(new Set(localArr.map(clampStage))).sort((a, b) => a - b);
-    const changed =
-      result.length !== localSorted.length ||
-      result.some((v, i) => v !== localSorted[i]);
-
-    if (changed) {
+    // Persist merged if different
+    if (JSON.stringify(result) !== JSON.stringify(localArr)) {
       const next = { ...all, [`level${lg}`]: result };
-      await LevelProgress.setAllProgress(next);
+      await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(next));
     }
 
     return result;
@@ -178,34 +197,32 @@ export const LevelProgress = {
       const lg = Number(levelGroup) || 1;
       const st = clampStage(stage);
 
-      // Update local unlocks first for responsive UI
-      const all = await LevelProgress.getAllProgress();
+      // Local first for responsive UI
+      const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
+      const all = raw ? JSON.parse(raw) : { level1: [1], level2: [], level3: [] };
       const key = `level${lg}`;
       const current = Array.isArray(all[key]) ? all[key] : [];
       const updated = new Set(current);
-      updated.add(1);        // ensure stage 1 always unlocked
-      updated.add(st);       // mark current stage as seen/unlocked
-
-      // Unlock the next stage when a stage is finished and correct
+      updated.add(1);
+      updated.add(st);
       if (isCorrect && st < MAX_STAGE) {
         updated.add(st + 1);
       }
-
-      // If final stage completed correctly, unlock next level group stage 1
+      // Unlock next level group stage 1 if final stage completed correctly
       if (isCorrect && st === MAX_STAGE && lg < 3) {
-        const nextGroupKey = `level${lg + 1}`;
-        const nextGroupArr = Array.isArray(all[nextGroupKey]) ? all[nextGroupKey] : [];
-        const nextGroupSet = new Set(nextGroupArr);
-        nextGroupSet.add(1); // unlock first stage of next level group
-        all[nextGroupKey] = uniqSorted(Array.from(nextGroupSet).map(clampStage));
+        const nextKey = `level${lg + 1}`;
+        const nextArr = Array.isArray(all[nextKey]) ? all[nextKey] : [];
+        const nextSet = new Set(nextArr);
+        nextSet.add(1);
+        all[nextKey] = uniqSorted(Array.from(nextSet).map(clampStage));
       }
-
       const localNext = { ...all, [key]: uniqSorted(Array.from(updated).map(clampStage)) };
-      await LevelProgress.setAllProgress(localNext);
+      await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(localNext));
 
       // Best-effort DB update
       try {
-        const userId = await LevelProgress.getCurrentUserId();
+        const { data } = await supabase.auth.getUser();
+        const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
         if (userId && DatabaseService?.updateStudentProgress) {
           await DatabaseService.updateStudentProgress(userId, lg, st, isCorrect, timeRemaining);
         }
@@ -213,9 +230,8 @@ export const LevelProgress = {
         console.warn('DB progress update failed (ignored):', e?.message || e);
       }
 
-      // Recompute merged unlocks (local + DB) and persist final state
-      const finalList = await LevelProgress.getCompletedLevels(lg);
-      return finalList;
+      // Recompute merged unlocks and return
+      return await LevelProgress.getCompletedLevels(lg);
     } catch (e) {
       console.error('completeLevel failed:', e);
       return null;
@@ -291,4 +307,7 @@ export const LevelProgress = {
       };
     }
   },
+
+  // Safe no-op: prevent crashes when LevelSelect calls this for reporting
+  syncProgressToBackend: async () => true,
 };

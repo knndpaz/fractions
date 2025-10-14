@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ImageBackground, StyleSheet, View, Text, TouchableOpacity, Image, Alert } from 'react-native';
+import { ImageBackground, StyleSheet, View, Text, TouchableOpacity, Image, Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LevelProgress } from '../utils/levelProgress';
 
@@ -13,7 +13,6 @@ export default function LevelSelect({ navigation }) {
     loadUserData();
     loadProgress();
     
-    // Listen for navigation events to refresh progress when coming back
     const unsubscribe = navigation.addListener('focus', () => {
       loadProgress();
     });
@@ -33,17 +32,21 @@ export default function LevelSelect({ navigation }) {
   };
 
   const loadProgress = async () => {
-    const progress = await LevelProgress.getAllProgress();
-    const stats = await LevelProgress.getUserStats();
-    const completion = await LevelProgress.getCompletionPercentage();
-    
-    setAllProgress(progress);
-    setUserStats(stats);
-    setCompletionPercentage(completion);
-    
-    // Sync progress to backend for reports
-    if (userData) {
-      await LevelProgress.syncProgressToBackend(userData);
+    try {
+      const progress = await LevelProgress.getAllProgress();
+      const stats = await LevelProgress.getUserStats();
+      const completion = await LevelProgress.getCompletionPercentage();
+
+      setAllProgress(progress);
+      setUserStats(stats);
+      setCompletionPercentage(completion);
+
+      // Guard optional method to prevent crashes
+      if (userData && typeof LevelProgress.syncProgressToBackend === 'function') {
+        await LevelProgress.syncProgressToBackend(userData);
+      }
+    } catch (e) {
+      console.warn('loadProgress failed:', e?.message || e);
     }
   };
 
@@ -69,9 +72,9 @@ export default function LevelSelect({ navigation }) {
   };
 
   const handleLevelPress = (levelGroup) => {
-    console.log('Attempting to navigate to level group:', levelGroup); // Debug log
+    console.log('Attempting to navigate to level group:', levelGroup);
     if (isLevelGroupUnlocked(levelGroup)) {
-      console.log('Level group unlocked, navigating...'); // Debug log
+      console.log('Level group unlocked, navigating...');
       navigation.navigate('MapLevels', { levelGroup });
     } else {
       const previousLevel = levelGroup - 1;
@@ -83,23 +86,16 @@ export default function LevelSelect({ navigation }) {
     }
   };
 
-  // Check if a level group is unlocked
   const isLevelGroupUnlocked = (levelGroup) => {
-    // Level 1 is always unlocked
-    if (levelGroup === 1) {
-      return true;
-    }
-    // Other levels require progress
+    if (levelGroup === 1) return true;
     return allProgress[`level${levelGroup}`] && allProgress[`level${levelGroup}`].length > 0;
   };
 
-  // Check if a level group is completed
   const isLevelGroupCompleted = (levelGroup) => {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
     return levelProgress.length >= 4 && levelProgress.includes(4);
   };
 
-  // Get completed stages count for a level group
   const getCompletedStagesCount = (levelGroup) => {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
     if (levelProgress.length === 0) return 0;
@@ -107,7 +103,6 @@ export default function LevelSelect({ navigation }) {
     return Math.max(0, maxUnlockedStage - 1);
   };
 
-  // Count how many levels are unlocked
   const getUnlockedLevelsCount = () => {
     let count = 0;
     if (isLevelGroupUnlocked(1)) count++;
@@ -116,19 +111,56 @@ export default function LevelSelect({ navigation }) {
     return count;
   };
 
-  const resetProgress = async () => {
+  // Centralized reset runner
+  const performReset = async (group) => {
+    try {
+      console.log('[Reset] Performing reset, group:', group ?? 'ALL');
+      await LevelProgress.resetProgress(group);
+      // Normalize storage unlocks after reset (respects reset short-circuit logic)
+      await Promise.all([1, 2, 3].map((g) => LevelProgress.getCompletedLevels(g)));
+      // Reload UI from storage/DB
+      await loadProgress();
+      console.log('[Reset] Done');
+    } catch (e) {
+      console.warn('[Reset] Failed:', e?.message || e);
+      Alert.alert('Reset Failed', 'Please try again.');
+    }
+  };
+
+  // Top reset: cross-platform confirmation + reset
+  const handleTopReset = () => {
+    if (Platform.OS === 'web') {
+      const ok = window.confirm('This will lock Levels 2 and 3 and set Level 1 back to Stage 1. Continue?');
+      if (ok) {
+        performReset(); // all groups
+      }
+      return;
+    }
+    Alert.alert(
+      'Reset All Levels',
+      'This will lock Levels 2 and 3 and set Level 1 back to Stage 1. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Reset', style: 'destructive', onPress: () => performReset() },
+      ]
+    );
+  };
+
+  // Bottom test reset: cross-platform confirmation + reset
+  const resetProgress = () => {
+    if (Platform.OS === 'web') {
+      const ok = window.confirm('Are you sure you want to reset all progress?');
+      if (ok) {
+        performReset(); // all groups
+      }
+      return;
+    }
     Alert.alert(
       'Reset Progress',
       'Are you sure you want to reset all progress?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Reset', 
-          onPress: async () => {
-            const resetData = await LevelProgress.resetProgress();
-            setAllProgress(resetData);
-          }
-        }
+        { text: 'Reset', style: 'destructive', onPress: () => performReset() },
       ]
     );
   };
@@ -159,6 +191,13 @@ export default function LevelSelect({ navigation }) {
               source={require('../assets/radix-icons_dashboard.png')}
               style={styles.gridIcon}
             />
+          </TouchableOpacity>
+        </View>
+
+        {/* Top actions (Reset Levels) */}
+        <View style={styles.topActions}>
+          <TouchableOpacity style={styles.topResetButton} onPress={handleTopReset}>
+            <Text style={styles.topResetText}>Reset Levels</Text>
           </TouchableOpacity>
         </View>
 
@@ -292,7 +331,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 12,
-    marginBottom: 24,
+    marginBottom: 12, // reduced to make room for top actions
     width: 320,
     elevation: 6,
     shadowColor: '#000',
@@ -300,32 +339,23 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
   },
-  profilePic: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
+  // New: Top actions styles
+  topActions: {
+    width: 320,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 12,
   },
-  profileName: {
-    fontFamily: 'Poppins-Bold',
-    fontSize: 15,
-    color: '#222',
-  },
-  profileGrade: {
-    fontFamily: 'Poppins-Regular',
-    fontSize: 12,
-    color: '#888',
-  },
-  gridIconBox: {
-    backgroundColor: '#FFA85C',
+  topResetButton: {
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: 8,
-    padding: 6,
-    marginLeft: 10,
   },
-  gridIcon: {
-    width: 22,
-    height: 22,
-    tintColor: '#fff',
+  topResetText: {
+    color: '#fff',
+    fontFamily: 'Poppins-Bold',
+    fontSize: 12,
   },
   levelBox: {
     width: 340,
