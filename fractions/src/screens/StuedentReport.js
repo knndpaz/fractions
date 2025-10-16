@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Home,
   BarChart3,
@@ -15,11 +15,292 @@ import {
   Award,
   AlertCircle,
 } from "lucide-react";
+import { supabase } from "../supabase";
 
 const logo = process.env.PUBLIC_URL + "/logo.png";
 
+// helpers
+const MAX_STAGE = 4;
+const fmtMins = (m) => {
+  if (!m || m <= 0) return "0m";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${h}h ${mm}m`;
+};
+const timeAgo = (iso) => {
+  if (!iso) return "Never";
+  const now = new Date();
+  const d = new Date(iso);
+  const diffMs = now - d;
+  const h = Math.floor(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(h / 24);
+  if (h < 1) return "Just now";
+  if (h < 24) return `${h} hours ago`;
+  return `${days} days ago`;
+};
+const dayKey = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = `${d.getMonth() + 1}`.padStart(2, "0");
+  const dd = `${d.getDate()}`.padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+};
+
 export default function StudentReport({ student, section, onNavigate }) {
-  // Safety check for student prop
+  const [loading, setLoading] = useState(true);
+  const [userRow, setUserRow] = useState(null); // users row with nested progress
+
+  // Load this student's user + student_progress
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      if (!student?.id) {
+        if (mounted) {
+          setUserRow(null);
+          setLoading(false);
+        }
+        return;
+      }
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("users")
+          .select(
+            `
+            id,
+            username,
+            full_name,
+            section,
+            student_progress (
+              level_group,
+              completed_stages,
+              current_stage,
+              total_attempts,
+              correct_answers,
+              accuracy,
+              completion_rate,
+              last_played,
+              created_at
+            )
+          `
+          )
+          .eq("id", student.id)
+          .single();
+        if (error) throw error;
+        if (mounted) setUserRow(data || null);
+      } catch (e) {
+        console.error("Failed to load student report:", e);
+        if (mounted) setUserRow(null);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [student?.id]);
+
+  const progRows = useMemo(
+    () => (Array.isArray(userRow?.student_progress) ? userRow.student_progress : []),
+    [userRow]
+  );
+
+  // Aggregate metrics
+  const totals = useMemo(() => {
+    const byLevel = { 1: null, 2: null, 3: null };
+    for (const r of progRows) {
+      const g = Number(r.level_group);
+      if ([1, 2, 3].includes(g)) byLevel[g] = r;
+    }
+    const totalAttempts = [1, 2, 3].reduce((s, g) => s + (byLevel[g]?.total_attempts || 0), 0);
+    const totalCorrect = [1, 2, 3].reduce((s, g) => s + (byLevel[g]?.correct_answers || 0), 0);
+    const accuracy = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
+
+    const compAvg = Math.round(
+      [1, 2, 3].reduce((s, g) => s + (byLevel[g]?.completion_rate || 0), 0) / 3
+    );
+
+    // Estimated total time from attempts (12.5s/attempt)
+    const totalTimeMinutes = Math.round((totalAttempts * 12.5) / 60);
+
+    // Sessions = distinct days of last_played across levels
+    const daySet = new Set(
+      progRows.map((r) => dayKey(r.last_played)).filter(Boolean)
+    );
+    const sessions = daySet.size;
+
+    const now = new Date();
+    const weekAgo = new Date();
+    weekAgo.setDate(now.getDate() - 7);
+    const sessionsThisWeek = new Set(
+      progRows
+        .filter((r) => r.last_played && new Date(r.last_played) >= weekAgo)
+        .map((r) => dayKey(r.last_played))
+        .filter(Boolean)
+    ).size;
+
+    const avgSessionTimeMin = sessions > 0 ? Math.round(totalTimeMinutes / sessions) : 0;
+
+    // Current level heuristic
+    let currentLevel = 0;
+    for (let g = 1; g <= 3; g++) {
+      const r = byLevel[g];
+      if (!r) continue;
+      const progressed =
+        (r.completion_rate || 0) > 0 || (r.current_stage || 1) > 1 || (r.total_attempts || 0) > 0;
+      if (progressed) currentLevel = Math.max(currentLevel, g);
+      if ((r.completion_rate || 0) === 100) currentLevel = Math.max(currentLevel, g);
+    }
+
+    const lastDates = progRows
+      .map((r) => r.last_played)
+      .filter(Boolean)
+      .map((d) => new Date(d).getTime());
+    const lastActivity = lastDates.length ? new Date(Math.max(...lastDates)).toISOString() : null;
+
+    const performanceScore = Math.round(0.6 * compAvg + 0.4 * accuracy); // simple blend
+
+    return {
+      totalAttempts,
+      totalCorrect,
+      accuracy,
+      compAvg,
+      totalTimeMinutes,
+      sessions,
+      sessionsThisWeek,
+      avgSessionTimeMin,
+      currentLevel,
+      lastActivity,
+      performanceScore,
+    };
+  }, [progRows]);
+
+  // Per-level progress cards
+  const levelProgress = useMemo(() => {
+    const get = (g) => progRows.find((r) => Number(r.level_group) === g) || {};
+    const mk = (g, title, desc) => {
+      const r = get(g);
+      const percent = Math.max(0, Math.min(100, Number(r.completion_rate || 0)));
+      const status = percent === 100 ? "Completed" : percent > 0 ? "In Progress" : "Locked";
+      const color = percent === 100 ? "green" : percent >= 60 ? "orange" : "red";
+      return { level: g, title, desc, percent, status, color };
+    };
+    return [
+      mk(1, "Basic Addition", "Simple fraction addition problems"),
+      mk(2, "Basic Subtraction", "Simple fraction subtraction problems"),
+      mk(3, "Mixed Operations", "Addition and subtraction combined"),
+    ];
+  }, [progRows]);
+
+  // Performance trends (simple, based on current snapshot)
+  const performanceTrends = useMemo(() => {
+    return [
+      {
+        label: "Accuracy",
+        value: `${totals.accuracy}%`,
+        color: "text-green-600",
+        bgColor: "bg-green-100",
+      },
+      {
+        label: "Avg Session Time",
+        value: fmtMins(totals.avgSessionTimeMin),
+        color: "text-blue-600",
+        bgColor: "bg-blue-100",
+      },
+      {
+        label: "Sessions This Week",
+        value: totals.sessionsThisWeek,
+        color: "text-orange-600",
+        bgColor: "bg-orange-100",
+      },
+      {
+        label: "First Try Success",
+        value: `${totals.accuracy}%`, // approx = accuracy
+        color: "text-purple-600",
+        bgColor: "bg-purple-100",
+      },
+    ];
+  }, [totals]);
+
+  // Session statistics
+  const sessionStats = useMemo(() => {
+    return [
+      { label: "Problems Solved", value: totals.totalCorrect },
+      { label: "Correct Answers", value: `${totals.totalCorrect} (${totals.accuracy}%)` },
+      { label: "Average Response Time", value: "12.5 seconds" },
+      { label: "Sessions", value: totals.sessions },
+      { label: "Avg Session Time", value: fmtMins(totals.avgSessionTimeMin) },
+    ];
+  }, [totals]);
+
+  // NEW: Summary cards content
+  const summary = useMemo(() => {
+    return [
+      {
+        label: "Overall Progress",
+        value: `${totals.compAvg}%`,
+        icon: Trophy,
+        color: "from-green-400 to-green-600",
+      },
+      {
+        label: "Avg Accuracy",
+        value: `${totals.accuracy}%`,
+        icon: Percent,
+        color: "from-blue-400 to-blue-600",
+      },
+      {
+        label: "Total Time",
+        value: fmtMins(totals.totalTimeMinutes),
+        icon: Clock,
+        color: "from-orange-400 to-orange-600",
+      },
+      {
+        label: "Sessions",
+        value: `${totals.sessions}`,
+        icon: BookOpen,
+        color: "from-purple-400 to-purple-600",
+      },
+    ];
+  }, [totals]);
+
+  // Recent activity list from student_progress
+  const recentActivity = useMemo(() => {
+    const rows = [...progRows].sort(
+      (a, b) => new Date(b.last_played || 0) - new Date(a.last_played || 0)
+    );
+    return rows.map((r) => {
+      const time = timeAgo(r.last_played);
+      const lvl = Number(r.level_group) || 1;
+      const comp = Number(r.completion_rate || 0);
+      const curr = Number(r.current_stage || 1);
+      const acc = Number(r.accuracy || 0);
+      return {
+        time,
+        title: `Level ${lvl} Update`,
+        desc: `Completed ${r.completed_stages || 0}/${MAX_STAGE} stages • Current Stage ${curr} • Accuracy ${acc}% • Completion ${comp}%`,
+      };
+    });
+  }, [progRows]);
+
+  const getLevelColor = (color) => {
+    if (color === "green") return "bg-green-500";
+    if (color === "orange") return "bg-orange-500";
+    return "bg-red-500";
+  };
+
+  // Get student name with fallback
+  const studentName = student?.name || userRow?.full_name || "Unknown Student";
+  const studentSection = student?.sections?.name || userRow?.section || "Unknown Section";
+  const studentId = student?.id || userRow?.id || "N/A";
+  const studentEmail = student?.email || "No email";
+
+  const perfRing = Math.max(0, Math.min(100, totals.performanceScore));
+  const ringCirc = 2 * Math.PI * 88;
+
+  // Safety check for student prop AFTER hooks to satisfy rules-of-hooks
   if (!student) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
@@ -42,143 +323,13 @@ export default function StudentReport({ student, section, onNavigate }) {
     );
   }
 
-  // Dummy data for demonstration - In real app, fetch this based on student.id
-  const summary = [
-    {
-      icon: Trophy,
-      label: "Overall Progress",
-      value: "95%",
-      color: "from-yellow-400 to-orange-500",
-    },
-    {
-      icon: Percent,
-      label: "Avg Accuracy",
-      value: "80%",
-      color: "from-green-400 to-emerald-500",
-    },
-    {
-      icon: Clock,
-      label: "Total Time",
-      value: "2h 15m",
-      color: "from-blue-400 to-cyan-500",
-    },
-    {
-      icon: BookOpen,
-      label: "Sessions",
-      value: 12,
-      color: "from-purple-400 to-pink-500",
-    },
-  ];
-
-  const levelProgress = [
-    {
-      level: 1,
-      title: "Basic Addition",
-      desc: "Simple fraction addition problems",
-      percent: 100,
-      status: "Completed",
-      color: "green",
-    },
-    {
-      level: 2,
-      title: "Basic Subtraction",
-      desc: "Simple fraction subtraction problems",
-      percent: 100,
-      status: "Completed",
-      color: "green",
-    },
-    {
-      level: 3,
-      title: "Mixed Operations",
-      desc: "Addition and subtraction combined",
-      percent: 85,
-      status: "In Progress",
-      color: "orange",
-    },
-    {
-      level: 4,
-      title: "Complex Fractions",
-      desc: "Advanced fraction operations",
-      percent: 45,
-      status: "In Progress",
-      color: "red",
-    },
-  ];
-
-  const performanceTrends = [
-    {
-      label: "Accuracy Improvement",
-      value: "+12%",
-      color: "text-green-600",
-      bgColor: "bg-green-100",
-    },
-    {
-      label: "Avg Session Time",
-      value: "15min",
-      color: "text-blue-600",
-      bgColor: "bg-blue-100",
-    },
-    {
-      label: "Sessions This Week",
-      value: 3,
-      color: "text-orange-600",
-      bgColor: "bg-orange-100",
-    },
-    {
-      label: "First Try Success",
-      value: "92%",
-      color: "text-purple-600",
-      bgColor: "bg-purple-100",
-    },
-  ];
-
-  const sessionStats = [
-    { label: "Problems Solved", value: 247 },
-    { label: "Correct Answers", value: "232 (94%)" },
-    { label: "Hints Used", value: 23 },
-    { label: "Average Response Time", value: "12.5 seconds" },
-    { label: "Fastest Solve Time", value: "3.2 seconds" },
-  ];
-
-  const recentActivity = [
-    {
-      time: "2 hours ago",
-      title: "Completed Level 3 - Problem Set 5",
-      desc: "Solved 15/18 problems correctly (83% accuracy)",
-    },
-    {
-      time: "5 hours ago",
-      title: "Started Level 4 - Complex Fractions",
-      desc: "First attempt at advanced problems",
-    },
-    {
-      time: "Yesterday",
-      title: 'Earned "Speed Demon" Achievement',
-      desc: "Solved 10 problems in under 2 minutes each",
-    },
-    {
-      time: "2 days ago",
-      title: "Perfect Score on Level 2 Final Test",
-      desc: "20/20 problems correct, unlocked Level 3",
-    },
-    {
-      time: "3 days ago",
-      title: "Study Session - Mixed Numbers Practice",
-      desc: "45 minutes focused practice session",
-    },
-  ];
-
-  const getLevelColor = (color) => {
-    if (color === "green") return "bg-green-500";
-    if (color === "orange") return "bg-orange-500";
-    return "bg-red-500";
-  };
-
-  // Get student name with fallback
-  const studentName = student.name || "Unknown Student";
-  const studentSection = student.sections?.name || "Unknown Section";
-  const studentId = student.id || "N/A";
-  const studentEmail = student.email || "No email";
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-lg p-8">Loading student report…</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -213,13 +364,11 @@ export default function StudentReport({ student, section, onNavigate }) {
               {/* User Menu */}
               <div className="flex items-center space-x-3 bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-xl transition-all duration-300">
                 <div className="text-right hidden lg:block">
-                  <div className="text-white font-semibold text-sm">
-                    Justine Nabunturan
-                  </div>
-                  <div className="text-orange-100 text-xs">Admin</div>
+                  <div className="text-white font-semibold text-sm">Admin</div>
+                  <div className="text-orange-100 text-xs">Dashboard</div>
                 </div>
                 <img
-                  src="https://ui-avatars.com/api/?name=Justine+Nabunturan&background=F68C2E&color=fff"
+                  src={`https://ui-avatars.com/api/?name=Admin&background=F68C2E&color=fff`}
                   alt="User"
                   className="w-10 h-10 rounded-full border-2 border-white"
                 />
@@ -238,7 +387,7 @@ export default function StudentReport({ student, section, onNavigate }) {
             onNavigate &&
             onNavigate("detailedreport", {
               id: student.section_id,
-              name: student.sections?.name,
+              name: student.sections?.name || userRow?.section,
             })
           }
           className="flex items-center space-x-2 text-orange-600 hover:text-orange-700 font-semibold mb-6 transform hover:translate-x-1 transition-all"
@@ -259,16 +408,15 @@ export default function StudentReport({ student, section, onNavigate }) {
                 className="w-16 h-16 rounded-full border-4 border-blue-100"
               />
               <div>
-                <h1 className="text-2xl font-bold text-gray-800">
-                  {studentName}
-                </h1>
+                <h1 className="text-2xl font-bold text-gray-800">{studentName}</h1>
                 <p className="text-gray-500 text-sm mt-1">
                   {studentSection} • Student ID: {studentId} • {studentEmail}
                 </p>
               </div>
             </div>
             <div className="text-sm text-gray-500">
-              Last Updated: <span className="font-semibold">5 minutes ago</span>
+              Last Updated:{" "}
+              <span className="font-semibold">{timeAgo(totals.lastActivity)}</span>
             </div>
           </div>
         </div>
@@ -288,9 +436,7 @@ export default function StudentReport({ student, section, onNavigate }) {
                   <Icon className="text-white" size={32} />
                 </div>
                 <div className="text-gray-600 text-sm mb-1">{item.label}</div>
-                <div className="text-3xl font-bold text-gray-800">
-                  {item.value}
-                </div>
+                <div className="text-3xl font-bold text-gray-800">{item.value}</div>
               </div>
             );
           })}
@@ -304,9 +450,7 @@ export default function StudentReport({ student, section, onNavigate }) {
               <div className="bg-blue-100 rounded-xl p-3">
                 <Target className="text-blue-600" size={24} />
               </div>
-              <h2 className="text-2xl font-bold text-gray-800">
-                Level Progress
-              </h2>
+              <h2 className="text-2xl font-bold text-gray-800">Level Progress</h2>
             </div>
 
             <div className="space-y-4">
@@ -324,9 +468,7 @@ export default function StudentReport({ student, section, onNavigate }) {
                       {lvl.level}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-800 mb-1">
-                        {lvl.title}
-                      </div>
+                      <div className="font-semibold text-gray-800 mb-1">{lvl.title}</div>
                       <div className="text-sm text-gray-500">{lvl.desc}</div>
                       <div className="mt-2 bg-gray-200 rounded-full h-2 overflow-hidden">
                         <div
@@ -338,9 +480,7 @@ export default function StudentReport({ student, section, onNavigate }) {
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                      <div className="font-bold text-xl text-gray-800">
-                        {lvl.percent}%
-                      </div>
+                      <div className="font-bold text-xl text-gray-800">{lvl.percent}%</div>
                       <span
                         className={`${getLevelColor(
                           lvl.color
@@ -367,14 +507,7 @@ export default function StudentReport({ student, section, onNavigate }) {
             <div className="flex flex-col items-center">
               <div className="relative w-48 h-48 mb-6">
                 <svg className="transform -rotate-90 w-48 h-48">
-                  <circle
-                    cx="96"
-                    cy="96"
-                    r="88"
-                    stroke="#e5e7eb"
-                    strokeWidth="16"
-                    fill="none"
-                  />
+                  <circle cx="96" cy="96" r="88" stroke="#e5e7eb" strokeWidth="16" fill="none" />
                   <circle
                     cx="96"
                     cy="96"
@@ -382,40 +515,30 @@ export default function StudentReport({ student, section, onNavigate }) {
                     stroke="url(#gradient)"
                     strokeWidth="16"
                     fill="none"
-                    strokeDasharray={`${2 * Math.PI * 88 * 0.95} ${
-                      2 * Math.PI * 88
-                    }`}
+                    strokeDasharray={`${ringCirc * (perfRing / 100)} ${ringCirc}`}
                     strokeLinecap="round"
                   />
                   <defs>
-                    <linearGradient
-                      id="gradient"
-                      x1="0%"
-                      y1="0%"
-                      x2="100%"
-                      y2="100%"
-                    >
+                    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
                       <stop offset="0%" stopColor="#10b981" />
                       <stop offset="100%" stopColor="#3b82f6" />
                     </linearGradient>
                   </defs>
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-5xl font-bold text-gray-800">95%</span>
+                  <span className="text-5xl font-bold text-gray-800">{perfRing}%</span>
                 </div>
               </div>
 
               <div className="flex items-center space-x-2 mb-3">
                 <Award className="text-green-600" size={24} />
                 <span className="text-xl font-bold text-green-600">
-                  Excellent Performance!
+                  {perfRing >= 85 ? "Excellent Performance!" : perfRing >= 60 ? "Good Progress" : "Needs Improvement"}
                 </span>
               </div>
 
               <p className="text-center text-gray-600 text-sm">
-                {studentName} is performing exceptionally well across all
-                levels. Shows strong understanding of fraction concepts and
-                maintains high accuracy rates.
+                Performance is calculated from overall progress and accuracy.
               </p>
             </div>
           </div>
@@ -429,20 +552,13 @@ export default function StudentReport({ student, section, onNavigate }) {
               <div className="bg-purple-100 rounded-xl p-3">
                 <TrendingUp className="text-purple-600" size={24} />
               </div>
-              <h2 className="text-2xl font-bold text-gray-800">
-                Performance Trends
-              </h2>
+              <h2 className="text-2xl font-bold text-gray-800">Performance Trends</h2>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               {performanceTrends.map((trend, idx) => (
-                <div
-                  key={idx}
-                  className={`${trend.bgColor} rounded-xl p-4 text-center`}
-                >
-                  <div className={`text-3xl font-bold ${trend.color} mb-2`}>
-                    {trend.value}
-                  </div>
+                <div key={idx} className={`${trend.bgColor} rounded-xl p-4 text-center`}>
+                  <div className={`text-3xl font-bold ${trend.color} mb-2`}>{trend.value}</div>
                   <div className="text-sm text-gray-600">{trend.label}</div>
                 </div>
               ))}
@@ -455,17 +571,12 @@ export default function StudentReport({ student, section, onNavigate }) {
               <div className="bg-orange-100 rounded-xl p-3">
                 <Zap className="text-orange-600" size={24} />
               </div>
-              <h2 className="text-2xl font-bold text-gray-800">
-                Session Statistics
-              </h2>
+              <h2 className="text-2xl font-bold text-gray-800">Session Statistics</h2>
             </div>
 
             <div className="space-y-3">
               {sessionStats.map((stat, idx) => (
-                <div
-                  key={idx}
-                  className="flex justify-between items-center p-3 bg-gray-50 rounded-lg"
-                >
+                <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                   <span className="text-gray-600">{stat.label}</span>
                   <span className="font-bold text-gray-800">{stat.value}</span>
                 </div>
@@ -480,12 +591,13 @@ export default function StudentReport({ student, section, onNavigate }) {
             <div className="bg-indigo-100 rounded-xl p-3">
               <Calendar className="text-indigo-600" size={24} />
             </div>
-            <h2 className="text-2xl font-bold text-gray-800">
-              Recent Activity
-            </h2>
+            <h2 className="text-2xl font-bold text-gray-800">Recent Activity</h2>
           </div>
 
           <div className="space-y-6">
+            {recentActivity.length === 0 && (
+              <div className="text-gray-500">No recent activity.</div>
+            )}
             {recentActivity.map((item, idx) => (
               <div key={idx} className="flex gap-4">
                 <div className="flex flex-col items-center">
@@ -496,9 +608,7 @@ export default function StudentReport({ student, section, onNavigate }) {
                 </div>
                 <div className="flex-1 pb-6">
                   <div className="text-sm text-gray-500 mb-1">{item.time}</div>
-                  <div className="font-semibold text-gray-800 mb-1">
-                    {item.title}
-                  </div>
+                  <div className="font-semibold text-gray-800 mb-1">{item.title}</div>
                   <div className="text-sm text-gray-600">{item.desc}</div>
                 </div>
               </div>
