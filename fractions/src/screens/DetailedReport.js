@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import {
   Home,
@@ -19,13 +19,11 @@ const logo = process.env.PUBLIC_URL + "/logo.png";
 
 export default function DetailedReport({ section, onNavigate }) {
   const [students, setStudents] = useState([]);
-  const [gameProgress, setGameProgress] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
 
   useEffect(() => {
-    // Safety check: only fetch if section exists
     if (!section || !section.id) {
       console.error("Section prop is missing or invalid");
       setLoading(false);
@@ -34,23 +32,37 @@ export default function DetailedReport({ section, onNavigate }) {
 
     const fetchData = async () => {
       try {
-        const { data: studentsData } = await supabase
-          .from("students")
-          .select("*, sections(name)")
-          .eq("section_id", section.id);
+        // Load all users that belong to this section.name
+        const { data: usersData } = await supabase
+          .from("users")
+          .select(`
+            id,
+            username,
+            full_name,
+            section,
+            student_progress (
+              level_group,
+              completed_stages,
+              current_stage,
+              total_attempts,
+              correct_answers,
+              accuracy,
+              completion_rate,
+              last_played
+            )
+          `)
+          .eq("section", section.name);
 
-        setStudents(studentsData || []);
+        // Normalize to "students" array expected by UI (name field)
+        const roster = (usersData || []).map((u) => ({
+          id: u.id,
+          name: u.full_name || u.username,
+          section_name: u.section,
+          // keep nested progress for lookups
+          _progress: Array.isArray(u.student_progress) ? u.student_progress : [],
+        }));
 
-        const studentIds = studentsData?.map((s) => s.id) || [];
-
-        if (studentIds.length > 0) {
-          const { data: progressData } = await supabase
-            .from("game_progress")
-            .select("*")
-            .in("student_id", studentIds);
-
-          setGameProgress(progressData || []);
-        }
+        setStudents(roster);
       } catch (error) {
         console.error("Error fetching data:", error);
       } finally {
@@ -59,100 +71,175 @@ export default function DetailedReport({ section, onNavigate }) {
     };
 
     fetchData();
-  }, [section?.id]); // Added optional chaining here
+  }, [section?.id, section?.name]);
+
+  // Summarize one student across level groups (for cards and tables)
+  const summarizeProgress = (st) => {
+    const rows = st._progress || [];
+    const byLevel = { 1: null, 2: null, 3: null };
+    rows.forEach((r) => {
+      const g = Number(r.level_group);
+      if ([1, 2, 3].includes(g)) byLevel[g] = r;
+    });
+
+    const compSum = [1, 2, 3].reduce(
+      (s, g) => s + (byLevel[g]?.completion_rate || 0),
+      0
+    );
+    const completion_rate = Math.round(compSum / 3);
+
+    const total_attempts = [1, 2, 3].reduce(
+      (s, g) => s + (byLevel[g]?.total_attempts || 0),
+      0
+    );
+    const correct_answers = [1, 2, 3].reduce(
+      (s, g) => s + (byLevel[g]?.correct_answers || 0),
+      0
+    );
+    const accuracy =
+      total_attempts > 0
+        ? Math.round((correct_answers / total_attempts) * 100)
+        : 0;
+
+    let current_level = 0;
+    for (let g = 1; g <= 3; g++) {
+      const r = byLevel[g];
+      if (!r) continue;
+      const progressed =
+        (r.completion_rate || 0) > 0 ||
+        (r.current_stage || 1) > 1 ||
+        (r.total_attempts || 0) > 0;
+      if (progressed) current_level = Math.max(current_level, g);
+      if ((r.completion_rate || 0) === 100) current_level = Math.max(current_level, g);
+    }
+
+    // Approx time spent (fallback): attempts * 12.5s -> minutes
+    const time_spent = Math.round((total_attempts * 12.5) / 60);
+
+    const lastDates = rows
+      .map((r) => r.last_played)
+      .filter(Boolean)
+      .map((d) => new Date(d).getTime());
+    const last_activity = lastDates.length
+      ? new Date(Math.max(...lastDates)).toISOString()
+      : null;
+
+    const wrong_attempts = total_attempts - correct_answers;
+
+    return {
+      completion_rate,
+      accuracy,
+      current_level,
+      time_spent, // minutes (approx)
+      last_activity, // ISO string
+      total_attempts,
+      correct_answers,
+      wrong_attempts,
+    };
+  };
 
   const getStudentProgress = (studentId) => {
-    return (
-      gameProgress.find((gp) => gp.student_id === studentId) || {
+    const st = students.find((s) => s.id === studentId);
+    if (!st) {
+      return {
         completion_rate: 0,
         accuracy: 0,
         current_level: 0,
         time_spent: 0,
         last_activity: null,
-      }
-    );
+      };
+    }
+    return summarizeProgress(st);
   };
 
   const getStudentStatus = (progress) => {
     if (progress.accuracy >= 90 && progress.completion_rate >= 80) {
       return { label: "Excellent", color: "#10b981" };
+    } else if (progress.accuracy < 60 || progress.wrong_attempts >= 5) {
+      return { label: "Struggling", color: "#ef4444" };
     } else if (progress.accuracy >= 70 && progress.completion_rate >= 50) {
       return { label: "Good", color: "#3b82f6" };
-    } else if (progress.completion_rate >= 25) {
-      return { label: "Needs Help", color: "#f59e0b" };
     } else {
-      return { label: "Struggling", color: "#ef4444" };
+      return { label: "Needs Help", color: "#f59e0b" };
     }
   };
 
-  const summary = {
-    totalStudents: students.length,
-    avgTimePerSession:
-      gameProgress.length > 0
-        ? Math.round(
-            gameProgress.reduce((sum, gp) => sum + (gp.time_spent || 0), 0) /
-              gameProgress.length
-          )
-        : 0,
-    avgAccuracy:
-      gameProgress.length > 0
-        ? Math.round(
-            gameProgress.reduce((sum, gp) => sum + (gp.accuracy || 0), 0) /
-              gameProgress.length
-          )
-        : 0,
-    avgProgress:
-      gameProgress.length > 0
-        ? Math.round(
-            gameProgress.reduce(
-              (sum, gp) => sum + (gp.completion_rate || 0),
-              0
-            ) / gameProgress.length
-          )
-        : 0,
-    activeThisWeek: gameProgress.filter((gp) => {
-      if (!gp.last_activity) return false;
-      const lastActivity = new Date(gp.last_activity);
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      return lastActivity >= weekAgo;
-    }).length,
-  };
+  const summary = (() => {
+    const totalStudents = students.length;
+    if (totalStudents === 0) {
+      return {
+        totalStudents: 0,
+        avgTimePerSession: 0,
+        avgAccuracy: 0,
+        avgProgress: 0,
+        activeThisWeek: 0,
+      };
+    }
+    const all = students.map(summarizeProgress);
+    const avgTimePerSession = Math.round(
+      all.reduce((sum, p) => sum + p.time_spent, 0) / totalStudents
+    );
+    const avgAccuracy = Math.round(
+      all.reduce((sum, p) => sum + p.accuracy, 0) / totalStudents
+    );
+    const avgProgress = Math.round(
+      all.reduce((sum, p) => sum + p.completion_rate, 0) / totalStudents
+    );
 
-  const levelStats = [
-    {
-      title: "Level 1: Basic Addition",
-      color: "#10b981",
-      students: gameProgress.filter((gp) => gp.current_level >= 1).length,
-      completed: gameProgress.filter((gp) => gp.current_level > 1).length,
-      struggling: gameProgress.filter(
-        (gp) => gp.current_level === 1 && gp.accuracy < 70
-      ).length,
-    },
-    {
-      title: "Level 2: Basic Subtraction",
-      color: "#3b82f6",
-      students: gameProgress.filter((gp) => gp.current_level >= 2).length,
-      completed: gameProgress.filter((gp) => gp.current_level > 2).length,
-      struggling: gameProgress.filter(
-        (gp) => gp.current_level === 2 && gp.accuracy < 70
-      ).length,
-    },
-    {
-      title: "Level 3: Mixed Operations",
-      color: "#f59e0b",
-      students: gameProgress.filter((gp) => gp.current_level >= 3).length,
-      completed: gameProgress.filter((gp) => gp.completion_rate === 100).length,
-      struggling: gameProgress.filter(
-        (gp) => gp.current_level === 3 && gp.accuracy < 70
-      ).length,
-    },
-  ];
+    const now = new Date();
+    const weekAgo = new Date(now);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const activeThisWeek = all.filter(
+      (p) => p.last_activity && new Date(p.last_activity) >= weekAgo
+    ).length;
+
+    return { totalStudents, avgTimePerSession, avgAccuracy, avgProgress, activeThisWeek };
+  })();
+
+  const levelStats = (() => {
+    const all = students.map(summarizeProgress);
+    const reached = (lvl) => all.filter((p) => p.current_level >= lvl).length;
+    const completed = all.filter((p) => p.completion_rate === 100).length;
+    return [
+      {
+        title: "Level 1: Basic Addition",
+        color: "#10b981",
+        students: reached(1),
+        completed: all.filter((p) => p.current_level > 1).length,
+        struggling: all.filter(
+          (p) =>
+            p.current_level === 1 &&
+            (p.accuracy < 70 || p.wrong_attempts >= 5)
+        ).length,
+      },
+      {
+        title: "Level 2: Basic Subtraction",
+        color: "#3b82f6",
+        students: reached(2),
+        completed: all.filter((p) => p.current_level > 2).length,
+        struggling: all.filter(
+          (p) =>
+            p.current_level === 2 &&
+            (p.accuracy < 70 || p.wrong_attempts >= 5)
+        ).length,
+      },
+      {
+        title: "Level 3: Mixed Operations",
+        color: "#f59e0b",
+        students: reached(3),
+        completed,
+        struggling: all.filter(
+          (p) =>
+            p.current_level === 3 &&
+            (p.accuracy < 70 || p.wrong_attempts >= 5)
+        ).length,
+      },
+    ];
+  })();
 
   const filteredStudents = students.filter((student) => {
-    const progress = getStudentProgress(student.id);
+    const progress = summarizeProgress(student);
     const status = getStudentStatus(progress);
-
     if (filterStatus === "all") return true;
     if (filterStatus === "excellent") return status.label === "Excellent";
     if (filterStatus === "needs-help")
@@ -174,13 +261,24 @@ export default function DetailedReport({ section, onNavigate }) {
     const diffMs = now - activity;
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffHours / 24);
-
     if (diffHours < 1) return "Just now";
     if (diffHours < 24) return `${diffHours} hours ago`;
     return `${diffDays} days ago`;
   };
 
-  // Safety check: show error if no section
+  // FIX: define useMemo hooks BEFORE any early return to avoid conditional hooks
+  // Summaries for Recommendations (replaces old gameProgress usage)
+  const summaries = useMemo(() => students.map(summarizeProgress), [students]);
+  const highPerformersCount = useMemo(
+    () => summaries.filter((gp) => gp.accuracy >= 90 && gp.completion_rate >= 80).length,
+    [summaries]
+  );
+  const lowPerformersCount = useMemo(
+    () => summaries.filter((gp) => gp.accuracy < 60 || gp.completion_rate < 30).length,
+    [summaries]
+  );
+
+  // Safety check: show error if no section (AFTER hooks)
   if (!section) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
@@ -445,9 +543,7 @@ export default function DetailedReport({ section, onNavigate }) {
               </div>
             )}
 
-            {gameProgress.filter(
-              (gp) => gp.accuracy >= 90 && gp.completion_rate >= 80
-            ).length > 0 && (
+            {highPerformersCount > 0 && (
               <div className="flex items-start space-x-3 bg-white rounded-lg p-4">
                 <Award
                   className="text-green-500 flex-shrink-0 mt-1"
@@ -458,20 +554,13 @@ export default function DetailedReport({ section, onNavigate }) {
                     High Performers -{" "}
                   </span>
                   <span className="text-gray-600">
-                    {
-                      gameProgress.filter(
-                        (gp) => gp.accuracy >= 90 && gp.completion_rate >= 80
-                      ).length
-                    }{" "}
-                    students are excelling. Consider advanced challenges.
+                    {highPerformersCount} students are excelling. Consider advanced challenges.
                   </span>
                 </div>
               </div>
             )}
 
-            {gameProgress.filter(
-              (gp) => gp.accuracy < 60 || gp.completion_rate < 30
-            ).length > 0 && (
+            {lowPerformersCount > 0 && (
               <div className="flex items-start space-x-3 bg-white rounded-lg p-4">
                 <AlertCircle
                   className="text-red-500 flex-shrink-0 mt-1"
@@ -482,18 +571,13 @@ export default function DetailedReport({ section, onNavigate }) {
                     Students Needing Immediate Attention -{" "}
                   </span>
                   <span className="text-gray-600">
-                    {
-                      gameProgress.filter(
-                        (gp) => gp.accuracy < 60 || gp.completion_rate < 30
-                      ).length
-                    }{" "}
-                    students with low performance. Schedule one-on-one sessions.
+                    {lowPerformersCount} students with low performance. Schedule one-on-one sessions.
                   </span>
                 </div>
               </div>
             )}
 
-            {gameProgress.length === 0 && (
+            {summaries.length === 0 && (
               <div className="flex items-start space-x-3 bg-white rounded-lg p-4">
                 <AlertCircle
                   className="text-gray-400 flex-shrink-0 mt-1"

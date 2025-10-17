@@ -17,8 +17,7 @@ const logo = process.env.PUBLIC_URL + "/logo.png";
 
 export default function Reports({ onNavigate }) {
   const [sections, setSections] = useState([]);
-  const [students, setStudents] = useState([]);
-  const [gameProgress, setGameProgress] = useState([]);
+  const [users, setUsers] = useState([]); // <-- NEW: users + nested student_progress
   const [loading, setLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -40,22 +39,28 @@ export default function Reports({ onNavigate }) {
       if (sectionsError) throw sectionsError;
       setSections(sectionsData || []);
 
-      // Load students
-      const { data: studentsData, error: studentsError } = await supabase
-        .from("students")
-        .select("*, sections(name)")
-        .order("created_at", { ascending: true });
+      // Load users with nested student_progress
+      const { data: usersData, error: usersError } = await supabase
+        .from("users")
+        .select(`
+          id,
+          username,
+          full_name,
+          section,
+          student_progress (
+            level_group,
+            completed_stages,
+            current_stage,
+            total_attempts,
+            correct_answers,
+            accuracy,
+            completion_rate,
+            last_played
+          )
+        `);
 
-      if (studentsError) throw studentsError;
-      setStudents(studentsData || []);
-
-      // Load game progress
-      const { data: progressData, error: progressError } = await supabase
-        .from("game_progress")
-        .select("*");
-
-      if (progressError) throw progressError;
-      setGameProgress(progressData || []);
+      if (usersError) throw usersError;
+      setUsers(usersData || []);
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
@@ -63,14 +68,82 @@ export default function Reports({ onNavigate }) {
     }
   };
 
-  const calculateSectionStats = (sectionId) => {
-    const sectionStudents = students.filter((s) => s.section_id === sectionId);
-    const studentIds = sectionStudents.map((s) => s.id);
-    const sectionProgress = gameProgress.filter((gp) =>
-      studentIds.includes(gp.student_id)
+  // Aggregate helper for one user across level groups 1..3
+  const summarizeUser = (u) => {
+    const rows = Array.isArray(u.student_progress) ? u.student_progress : [];
+    const byLevel = { 1: null, 2: null, 3: null };
+    rows.forEach((r) => {
+      const g = Number(r.level_group);
+      if ([1, 2, 3].includes(g)) byLevel[g] = r;
+    });
+
+    // Completion: average completion_rate over groups (missing group = 0)
+    const compSum = [1, 2, 3].reduce(
+      (s, g) => s + (byLevel[g]?.completion_rate || 0),
+      0
+    );
+    const overallCompletion = Math.round(compSum / 3);
+
+    // Accuracy: total_correct / total_attempts across groups
+    const totalAttempts = [1, 2, 3].reduce(
+      (s, g) => s + (byLevel[g]?.total_attempts || 0),
+      0
+    );
+    const totalCorrect = [1, 2, 3].reduce(
+      (s, g) => s + (byLevel[g]?.correct_answers || 0),
+      0
+    );
+    const overallAccuracy =
+      totalAttempts > 0
+        ? Math.round((totalCorrect / totalAttempts) * 100)
+        : 0;
+
+    // Current level reached (rough): highest group with meaningful progress
+    let currentLevel = 0;
+    for (let g = 1; g <= 3; g++) {
+      const r = byLevel[g];
+      if (!r) continue;
+      const progressed =
+        (r.completion_rate || 0) > 0 ||
+        (r.current_stage || 1) > 1 ||
+        (r.total_attempts || 0) > 0;
+      if (progressed) currentLevel = Math.max(currentLevel, g);
+      if ((r.completion_rate || 0) === 100) currentLevel = Math.max(currentLevel, g);
+    }
+
+    // Completed all levels (1..3)
+    const isCompletedAll = [1, 2, 3].every(
+      (g) => (byLevel[g]?.completion_rate || 0) === 100
     );
 
-    if (sectionStudents.length === 0) {
+    // Last activity
+    const lastDates = rows
+      .map((r) => r.last_played)
+      .filter(Boolean)
+      .map((d) => new Date(d).getTime());
+    const lastPlayed = lastDates.length
+      ? new Date(Math.max(...lastDates)).toISOString()
+      : null;
+
+    return {
+      overallCompletion,
+      overallAccuracy,
+      currentLevel,
+      isCompletedAll,
+      totalAttempts,
+      totalCorrect,
+      lastPlayed,
+    };
+  };
+
+  const calculateSectionStats = (sectionId) => {
+    const s = sections.find((x) => x.id === sectionId);
+    const sectionName = s?.name || "";
+    const roster = users.filter(
+      (u) => (u.section || "").toLowerCase() === sectionName.toLowerCase()
+    );
+
+    if (roster.length === 0) {
       return {
         totalStudents: 0,
         avgCompletion: 0,
@@ -79,60 +152,50 @@ export default function Reports({ onNavigate }) {
       };
     }
 
-    const totalCompletion = sectionProgress.reduce(
-      (sum, gp) => sum + (gp.completion_rate || 0),
-      0
+    const summaries = roster.map(summarizeUser);
+    const avgCompletion = Math.round(
+      summaries.reduce((sum, x) => sum + x.overallCompletion, 0) / roster.length
     );
-    const totalAccuracy = sectionProgress.reduce(
-      (sum, gp) => sum + (gp.accuracy || 0),
-      0
+    const avgAccuracy = Math.round(
+      summaries.reduce((sum, x) => sum + x.overallAccuracy, 0) / roster.length
     );
 
-    const avgCompletion =
-      sectionProgress.length > 0
-        ? Math.round(totalCompletion / sectionProgress.length)
-        : 0;
-    const avgAccuracy =
-      sectionProgress.length > 0
-        ? Math.round(totalAccuracy / sectionProgress.length)
-        : 0;
-
-    const levelDistribution = {
-      level1: sectionProgress.filter((gp) => gp.current_level >= 1).length,
-      level2: sectionProgress.filter((gp) => gp.current_level >= 2).length,
-      level3: sectionProgress.filter((gp) => gp.current_level >= 3).length,
-      completed: sectionProgress.filter((gp) => gp.completion_rate === 100)
-        .length,
-    };
+    const level1 = summaries.filter((x) => x.currentLevel >= 1).length;
+    const level2 = summaries.filter((x) => x.currentLevel >= 2).length;
+    const level3 = summaries.filter((x) => x.currentLevel >= 3).length;
+    const completed = summaries.filter((x) => x.isCompletedAll).length;
 
     return {
-      totalStudents: sectionStudents.length,
+      totalStudents: roster.length,
       avgCompletion,
       avgAccuracy,
-      levelDistribution,
+      levelDistribution: { level1, level2, level3, completed },
     };
   };
 
-  const overallStats = {
-    totalStudents: students.length,
-    totalSections: sections.length,
-    avgProgress:
-      gameProgress.length > 0
-        ? Math.round(
-            gameProgress.reduce(
-              (sum, gp) => sum + (gp.completion_rate || 0),
-              0
-            ) / gameProgress.length
-          )
-        : 0,
-    avgAccuracy:
-      gameProgress.length > 0
-        ? Math.round(
-            gameProgress.reduce((sum, gp) => sum + (gp.accuracy || 0), 0) /
-              gameProgress.length
-          )
-        : 0,
-  };
+  const overallStats = (() => {
+    if (users.length === 0) {
+      return {
+        totalStudents: 0,
+        totalSections: sections.length,
+        avgProgress: 0,
+        avgAccuracy: 0,
+      };
+    }
+    const summaries = users.map(summarizeUser);
+    const avgProgress = Math.round(
+      summaries.reduce((s, x) => s + x.overallCompletion, 0) / users.length
+    );
+    const avgAccuracy = Math.round(
+      summaries.reduce((s, x) => s + x.overallAccuracy, 0) / users.length
+    );
+    return {
+      totalStudents: users.length,
+      totalSections: sections.length,
+      avgProgress,
+      avgAccuracy,
+    };
+  })();
 
   const filteredSections = sections.filter((section) =>
     section.name.toLowerCase().includes(searchQuery.toLowerCase())
