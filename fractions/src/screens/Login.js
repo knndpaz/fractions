@@ -1,20 +1,55 @@
 import React, { useState } from "react";
 import { Eye, EyeOff, User, Lock, LogIn } from "lucide-react";
+import { supabase } from "../supabase";
 
-export default function AdminLogin() {
+export default function AdminLogin({ onLoggedIn }) {
   const [showPassword, setShowPassword] = useState(false);
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(""); // email or username
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [focusedInput, setFocusedInput] = useState("");
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!username || !password) return;
     setIsLoading(true);
-    setTimeout(() => {
+    try {
+      // Allow email login (recommended)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: username.trim().toLowerCase(),
+        password,
+      });
+      if (error) {
+        alert(error.message);
+      } else {
+        // session is handled in App via onAuthStateChange
+        onLoggedIn && onLoggedIn(data.user);
+
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data: teacher } = await supabase
+          .from('teachers')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (!teacher) {
+          // first-time login: create teacher profile row
+          await supabase.from('teachers').insert({
+            id: user.id,
+            email: user.email,
+            full_name: user.user_metadata?.full_name || null,
+            username: user.user_metadata?.username || null,
+          });
+        } else {
+          // update last_login
+          await supabase.from('teachers').update({ last_login: new Date().toISOString() }).eq('id', user.id);
+        }
+      }
+    } catch (err) {
+      alert("Login failed. Please try again.");
+    } finally {
       setIsLoading(false);
-      alert("Login successful! (Demo)");
-    }, 1500);
+    }
   };
 
   return (
