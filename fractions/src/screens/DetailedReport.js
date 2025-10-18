@@ -17,7 +17,7 @@ import {
 
 const logo = process.env.PUBLIC_URL + "/logo.png";
 
-export default function DetailedReport({ section, onNavigate }) {
+export default function DetailedReport({ section, onNavigate, currentUser, onLogout }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -32,7 +32,7 @@ export default function DetailedReport({ section, onNavigate }) {
 
     const fetchData = async () => {
       try {
-        // Load all users that belong to this section.name
+        // Users in this section with nested progress
         const { data: usersData } = await supabase
           .from("users")
           .select(`
@@ -53,12 +53,10 @@ export default function DetailedReport({ section, onNavigate }) {
           `)
           .eq("section", section.name);
 
-        // Normalize to "students" array expected by UI (name field)
         const roster = (usersData || []).map((u) => ({
           id: u.id,
           name: u.full_name || u.username,
           section_name: u.section,
-          // keep nested progress for lookups
           _progress: Array.isArray(u.student_progress) ? u.student_progress : [],
         }));
 
@@ -71,7 +69,7 @@ export default function DetailedReport({ section, onNavigate }) {
     };
 
     fetchData();
-  }, [section?.id, section?.name]);
+  }, [section?.id, section?.name, currentUser?.id]);
 
   // Summarize one student across level groups (for cards and tables)
   const summarizeProgress = (st) => {

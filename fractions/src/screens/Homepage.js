@@ -22,7 +22,7 @@ import {
 const logo = process.env.PUBLIC_URL + "/logo.png";
 const character = process.env.PUBLIC_URL + "/character.png";
 
-export default function Homepage({ onNavigate }) {
+export default function Homepage({ onNavigate, currentUser, onLogout }) {
   const [sections, setSections] = useState([]);
   const [students, setStudents] = useState([]);
   const [sectionName, setSectionName] = useState("");
@@ -59,20 +59,18 @@ export default function Homepage({ onNavigate }) {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // Load data on component mount
+  // Load data on component mount and when user changes
   useEffect(() => {
     loadSections();
     loadStudents();
-  }, []);
+  }, [currentUser?.id]);
 
-  // Load sections from Supabase
+  // Load sections from Supabase (scoped to teacher)
   const loadSections = async () => {
     try {
-      const { data, error } = await supabase
-        .from("sections")
-        .select("*")
-        .order("created_at", { ascending: true });
-
+      let q = supabase.from("sections").select("*").order("created_at", { ascending: true });
+      if (currentUser?.id) q = q.eq("created_by", currentUser.id);
+      const { data, error } = await q;
       if (error) {
         console.error("Error loading sections:", error);
       } else {
@@ -83,19 +81,18 @@ export default function Homepage({ onNavigate }) {
     }
   };
 
-  // Load students from Supabase
+  // Load students scoped to teacher’s sections (inner join)
   const loadStudents = async () => {
     try {
-      const { data, error } = await supabase
+      let q = supabase
         .from("students")
-        .select(
-          `
+        .select(`
           *,
-          sections(name)
-        `
-        )
+          sections!inner(id, name, created_by)
+        `)
         .order("created_at", { ascending: true });
-
+      if (currentUser?.id) q = q.eq("sections.created_by", currentUser.id);
+      const { data, error } = await q;
       if (error) {
         console.error("Error loading students:", error);
       } else {
@@ -106,14 +103,12 @@ export default function Homepage({ onNavigate }) {
     }
   };
 
-  // Add section handler
+  // Add section handler (attach created_by)
   const handleAddSection = async () => {
     if (sectionName.trim()) {
-      // Check if section already exists
       const exists = sections.some(
         (s) => s.name.toLowerCase() === sectionName.trim().toLowerCase()
       );
-
       if (exists) {
         alert("Section already exists!");
         return;
@@ -121,9 +116,14 @@ export default function Homepage({ onNavigate }) {
 
       setLoading(true);
       try {
+        const payload = {
+          name: sectionName.trim(),
+          progress: 0,
+          ...(currentUser?.id ? { created_by: currentUser.id } : {}),
+        };
         const { data, error } = await supabase
           .from("sections")
-          .insert([{ name: sectionName.trim(), progress: 0 }])
+          .insert([payload])
           .select()
           .single();
 
@@ -142,260 +142,29 @@ export default function Homepage({ onNavigate }) {
     }
   };
 
-  // helper: normalize to lowercase without spaces
-  const normalize = (s) => (s || "").trim().toLowerCase();
-
-  // helper: check duplicates in students table by username OR email
-  const checkExistingStudent = async (username, email) => {
-    const uname = normalize(username);
-    const mail = normalize(email);
-    const { data, error } = await supabase
-      .from("students")
-      .select("id, username, email")
-      .or(`username.eq.${uname},email.eq.${mail}`)
-      .limit(1);
-    if (error) throw error;
-    return data?.[0] || null;
-  };
-
-  // Add single student (UPDATED: prevent 409 by pre-checking)
-  const handleAddStudent = async () => {
-    if (
-      !studentName.trim() ||
-      !studentUsername.trim() ||
-      !studentEmail.trim() ||
-      !studentPassword.trim() ||
-      !studentSection.trim()
-    ) {
-      alert("Please fill in all fields");
-      return;
-    }
-
-    const uname = normalize(studentUsername);
-    const mail = normalize(studentEmail);
-
-    setLoading(true);
-    try {
-      // Check for duplicates BEFORE creating auth user
-      const dup = await checkExistingStudent(uname, mail);
-      if (dup) {
-        if (dup.username === uname) {
-          alert("Username already exists. Please choose a different username.");
-        } else {
-          alert("Email already exists. Please use a different email.");
-        }
-        setLoading(false);
-        return;
-      }
-
-      // Find or create section FIRST
-      const section = await findOrCreateSection(studentSection);
-      if (!section) {
-        alert("Error creating section");
-        setLoading(false);
-        return;
-      }
-
-      // Create user in Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: mail,
-        password: studentPassword,
-        options: {
-          data: {
-            full_name: studentName.trim(),
-            username: uname,
-            section: section.name,
-            section_id: section.id,
-            role: "student",
-          },
-        },
-      });
-
-      if (authError) {
-        // Common: "User already registered" -> email conflict in Auth
-        alert(`Error creating user account: ${authError.message}`);
-        setLoading(false);
-        return;
-      }
-
-      // Insert student record; use upsert on username to avoid race 409
-      const { data: studentData, error: studentError } = await supabase
-        .from("students")
-        .upsert(
-          [
-            {
-              user_id: authData.user.id,
-              name: studentName.trim(),
-              username: uname,
-              email: mail,
-              section_id: section.id,
-            },
-          ],
-          { onConflict: "username" }
-        )
-        .select(`*, sections(name)`)
-        .single();
-
-      if (studentError) {
-        alert("Error creating student record: " + studentError.message);
-      } else {
-        setStudents((prev) => [...prev, studentData]);
-        await loadStudents();
-        setStudentName("");
-        setStudentUsername("");
-        setStudentEmail("");
-        setStudentPassword("");
-        setStudentSection("");
-        setShowPassword(false);
-        showNotification(`Student "${studentName}" created successfully!`);
-      }
-    } catch (error) {
-      alert("Error creating student: " + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Add multiple students (UPDATED: pre-check duplicates per student and skip)
-  const handleAddMultipleStudents = async () => {
-    const validStudents = multipleStudents.filter(
-      (s) =>
-        s.name.trim() &&
-        s.username.trim() &&
-        s.email.trim() &&
-        s.password.trim() &&
-        s.section.trim()
-    );
-
-    if (validStudents.length === 0) {
-      alert("Please fill in at least one complete student form");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      let successCount = 0;
-      let skippedDuplicates = 0;
-      const createdStudents = [];
-
-      for (const s of validStudents) {
-        const uname = normalize(s.username);
-        const mail = normalize(s.email);
-
-        try {
-          // pre-check duplicates
-          const dup = await checkExistingStudent(uname, mail);
-          if (dup) {
-            skippedDuplicates++;
-            continue;
-          }
-
-          // section
-          const section = await findOrCreateSection(s.section);
-          if (!section) continue;
-
-          // create auth user
-          const { data: authData, error: authError } =
-            await supabase.auth.signUp({
-              email: mail,
-              password: s.password,
-              options: {
-                data: {
-                  full_name: s.name.trim(),
-                  username: uname,
-                  section: section.name,
-                  section_id: section.id,
-                  role: "student",
-                },
-              },
-            });
-          if (authError) {
-            // skip if email already registered in auth
-            continue;
-          }
-
-          // students row (use upsert to avoid race)
-          const { data: studentData, error: studentError } = await supabase
-            .from("students")
-            .upsert(
-              [
-                {
-                  user_id: authData.user.id,
-                  name: s.name.trim(),
-                  username: uname,
-                  email: mail,
-                  section_id: section.id,
-                },
-              ],
-              { onConflict: "username" }
-            )
-            .select("*, sections(name)")
-            .single();
-
-          if (!studentError && studentData) {
-            successCount++;
-            createdStudents.push(studentData);
-          }
-        } catch (err) {
-          // keep going with the next student
-        }
-      }
-
-      if (createdStudents.length > 0) {
-        setStudents((prev) => [...prev, ...createdStudents]);
-      }
-      await loadStudents();
-
-      setMultipleStudents([
-        {
-          name: "",
-          username: "",
-          email: "",
-          password: "",
-          section: "",
-          showPassword: false,
-        },
-      ]);
-      setIsMultipleMode(false);
-      setSameSection(false);
-
-      showNotification(
-        `${successCount} student(s) created successfully!${
-          skippedDuplicates > 0
-            ? ` ${skippedDuplicates} skipped due to duplicates.`
-            : ""
-        }`
-      );
-    } catch (error) {
-      alert("Error creating students: " + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Helper function to find or create section
+  // Helper function to find or create section (attach created_by)
   const findOrCreateSection = async (sectionName) => {
     if (!sectionName.trim()) return null;
 
     console.log("Finding or creating section:", sectionName.trim());
-
-    // Check if section already exists (case-insensitive)
     const existingSection = sections.find(
       (s) => s.name.toLowerCase() === sectionName.trim().toLowerCase()
     );
-
     if (existingSection) {
       console.log("Section already exists:", existingSection);
       return existingSection;
     }
 
-    // Create new section in database
     try {
       console.log("Creating new section:", sectionName.trim());
-
+      const payload = {
+        name: sectionName.trim(),
+        progress: 0,
+        ...(currentUser?.id ? { created_by: currentUser.id } : {}),
+      };
       const { data, error } = await supabase
         .from("sections")
-        .insert([{ name: sectionName.trim(), progress: 0 }])
+        .insert([payload])
         .select()
         .single();
 
@@ -403,10 +172,7 @@ export default function Homepage({ onNavigate }) {
         console.error("Error creating section:", error);
         return null;
       }
-
       console.log("New section created:", data);
-
-      // Update local state
       setSections((prev) => [...prev, data]);
       return data;
     } catch (error) {
@@ -507,6 +273,247 @@ export default function Homepage({ onNavigate }) {
       .length;
   };
 
+  // Helper: normalize strings
+  const normalize = (s) => (s || "").trim();
+
+  // Helper: check for existing username or email
+  const checkExistingStudent = async (username, email) => {
+    try {
+      const uname = normalize(username);
+      const mail = normalize(email);
+      if (!uname && !mail) return null;
+
+      // Check username
+      if (uname) {
+        const { data, error } = await supabase
+          .from("students")
+          .select("id, username, email")
+          .eq("username", uname)
+          .limit(1);
+        if (!error && data && data.length > 0) return data[0];
+      }
+
+      // Check email
+      if (mail) {
+        const { data, error } = await supabase
+          .from("students")
+          .select("id, username, email")
+          .eq("email", mail)
+          .limit(1);
+        if (!error && data && data.length > 0) return data[0];
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Create single student
+  const handleAddStudent = async () => {
+    const name = normalize(studentName);
+    const uname = normalize(studentUsername);
+    const mail = normalize(studentEmail);
+    const pwd = normalize(studentPassword);
+    const secName = normalize(studentSection);
+
+    if (!name || !uname || !mail || !pwd || !secName) {
+      alert("Please fill out all fields.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Prevent duplicates
+      const dup = await checkExistingStudent(uname, mail);
+      if (dup) {
+        if (dup.username === uname) {
+          alert("Username already exists. Choose a different username.");
+        } else {
+          alert("Email already exists. Use a different email.");
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Ensure section exists
+      const section = await findOrCreateSection(secName);
+      if (!section) {
+        alert("Failed to create/find section.");
+        setLoading(false);
+        return;
+      }
+
+      // Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: mail,
+        password: pwd,
+        options: {
+          data: {
+            full_name: name,
+            username: uname,
+            section: section.name,
+            section_id: section.id,
+            role: "student",
+          },
+        },
+      });
+      if (authError) {
+        alert(`Error creating user: ${authError.message}`);
+        setLoading(false);
+        return;
+      }
+
+      // Insert student record
+      const { data: studentRow, error: studentError } = await supabase
+        .from("students")
+        .upsert(
+          [
+            {
+              user_id: authData?.user?.id || null,
+              name,
+              username: uname,
+              email: mail,
+              section_id: section.id,
+            },
+          ],
+          { onConflict: "username" }
+        )
+        .select(`*, sections(name)`)
+        .single();
+
+      if (studentError) {
+        alert("Error saving student record: " + studentError.message);
+      } else {
+        setStudents((prev) => [...prev, studentRow]);
+        await loadStudents();
+        setStudentName("");
+        setStudentUsername("");
+        setStudentEmail("");
+        setStudentPassword("");
+        setStudentSection("");
+        setShowPassword(false);
+        showNotification(`Student "${name}" created successfully!`);
+      }
+    } catch (error) {
+      alert("Error creating student: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Create multiple students
+  const handleAddMultipleStudents = async () => {
+    const validStudents = multipleStudents
+      .map((s) => ({
+        name: normalize(s.name),
+        username: normalize(s.username),
+        email: normalize(s.email),
+        password: normalize(s.password),
+        section: normalize(s.section || (sameSection ? multipleStudents[0]?.section : "")),
+      }))
+      .filter((s) => s.name && s.username && s.email && s.password && s.section);
+
+    if (validStudents.length === 0) {
+      alert("Please complete at least one student form.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let successCount = 0;
+      let skippedDuplicates = 0;
+      const created = [];
+
+      for (const s of validStudents) {
+        try {
+          const dup = await checkExistingStudent(s.username, s.email);
+          if (dup) {
+            skippedDuplicates++;
+            continue;
+          }
+
+          const section = await findOrCreateSection(s.section);
+          if (!section) continue;
+
+          // Create auth user
+          const { data: authData, error: authError } = await supabase.auth.signUp({
+            email: s.email,
+            password: s.password,
+            options: {
+              data: {
+                full_name: s.name,
+                username: s.username,
+                section: section.name,
+                section_id: section.id,
+                role: "student",
+              },
+            },
+          });
+          if (authError) continue;
+
+          // Insert student record
+          const { data: studentRow, error: studentError } = await supabase
+            .from("students")
+            .upsert(
+              [
+                {
+                  user_id: authData?.user?.id || null,
+                  name: s.name,
+                  username: s.username,
+                  email: s.email,
+                  section_id: section.id,
+                },
+              ],
+              { onConflict: "username" }
+            )
+            .select("*, sections(name)")
+            .single();
+
+          if (!studentError && studentRow) {
+            successCount++;
+            created.push(studentRow);
+          }
+        } catch {
+          // skip on error and continue with next
+        }
+      }
+
+      if (created.length > 0) {
+        setStudents((prev) => [...prev, ...created]);
+      }
+      await loadStudents();
+
+      // Reset forms
+      setMultipleStudents([
+        { name: "", username: "", email: "", password: "", section: "", showPassword: false },
+      ]);
+      setIsMultipleMode(false);
+      setSameSection(false);
+
+      showNotification(
+        `Saved ${successCount} student(s). ${skippedDuplicates > 0 ? skippedDuplicates + " skipped (duplicates)." : ""}`
+      );
+    } catch (error) {
+      alert("Error creating students: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Sign out + navigate to login
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Logout failed:', e?.message || e);
+    } finally {
+      setShowUserMenu(false);
+      if (typeof onLogout === 'function') onLogout();
+      if (typeof onNavigate === 'function') onNavigate('login');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Notification Toast */}
@@ -524,7 +531,7 @@ export default function Homepage({ onNavigate }) {
       {/* Test button */}
       <button
         onClick={testSupabaseConnection}
-        className="fixed top-5 right-5 z-50 bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg shadow-lg transition-all"
+        className="fixed top-5 right-5 z-40 bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg shadow-lg transition-all"
       >
         Test DB Connection
       </button>
@@ -569,31 +576,35 @@ export default function Homepage({ onNavigate }) {
                 >
                   <div className="text-right hidden sm:block">
                     <div className="text-white font-semibold text-sm">
-                      Justine Nabunturan
+                      {currentUser?.user_metadata?.full_name || currentUser?.email || 'User'}
                     </div>
                     <div className="text-orange-100 text-xs">Admin</div>
                   </div>
                   <img
-                    src="https://ui-avatars.com/api/?name=Justine+Nabunturan&background=F68C2E&color=fff"
+                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser?.user_metadata?.full_name || 'User')}&background=F68C2E&color=fff`}
                     alt="User"
                     className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white"
                   />
-                  <ChevronDown
-                    size={20}
-                    className="text-white hidden sm:block"
-                  />
+                  <ChevronDown size={20} className="text-white hidden sm:block" />
                 </button>
 
                 {showUserMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl py-2 z-50">
-                    <button className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors">
+                  <div
+                    className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl py-2"
+                    style={{ zIndex: 9999 }}
+                  >
+                    <button className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors" type="button">
                       Profile
                     </button>
-                    <button className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors">
+                    <button className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors" type="button">
                       Settings
                     </button>
                     <hr className="my-2" />
-                    <button className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 transition-colors">
+                    <button
+                      className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 transition-colors"
+                      type="button"
+                      onClick={handleLogout}
+                    >
                       Logout
                     </button>
                   </div>

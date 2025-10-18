@@ -15,9 +15,9 @@ import {
 
 const logo = process.env.PUBLIC_URL + "/logo.png";
 
-export default function Reports({ onNavigate }) {
+export default function Reports({ onNavigate, currentUser, onLogout }) {
   const [sections, setSections] = useState([]);
-  const [users, setUsers] = useState([]); // <-- NEW: users + nested student_progress
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -25,44 +25,52 @@ export default function Reports({ onNavigate }) {
   // Load data from Supabase
   useEffect(() => {
     loadAllData();
-  }, []);
+  }, [currentUser?.id]);
 
   const loadAllData = async () => {
     setLoading(true);
     try {
-      // Load sections
-      const { data: sectionsData, error: sectionsError } = await supabase
+      // Load sections owned by this teacher
+      let sq = supabase
         .from("sections")
         .select("*")
         .order("created_at", { ascending: true });
-
+      if (currentUser?.id) sq = sq.eq("created_by", currentUser.id);
+      const { data: sectionsData, error: sectionsError } = await sq;
       if (sectionsError) throw sectionsError;
       setSections(sectionsData || []);
 
-      // Load users with nested student_progress
-      const { data: usersData, error: usersError } = await supabase
-        .from("users")
-        .select(`
-          id,
-          username,
-          full_name,
-          section,
-          student_progress (
-            level_group,
-            completed_stages,
-            current_stage,
-            total_attempts,
-            correct_answers,
-            accuracy,
-            completion_rate,
-            last_played
-          )
-        `);
-
-      if (usersError) throw usersError;
-      setUsers(usersData || []);
+      // Load users who belong to these sections (by name) with nested progress
+      const sectionNames = (sectionsData || []).map((s) => s.name);
+      let usersData = [];
+      if (sectionNames.length > 0) {
+        const { data, error } = await supabase
+          .from("users")
+          .select(`
+            id,
+            username,
+            full_name,
+            section,
+            student_progress (
+              level_group,
+              completed_stages,
+              current_stage,
+              total_attempts,
+              correct_answers,
+              accuracy,
+              completion_rate,
+              last_played
+            )
+          `)
+          .in("section", sectionNames);
+        if (error) throw error;
+        usersData = data || [];
+      }
+      setUsers(usersData);
     } catch (error) {
       console.error("Error loading data:", error);
+      setSections([]);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
