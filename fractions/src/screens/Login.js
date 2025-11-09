@@ -25,16 +25,18 @@ export default function AdminLogin({ onLoggedIn }) {
         // session is handled in App via onAuthStateChange
         onLoggedIn && onLoggedIn(data.user);
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         const { data: teacher } = await supabase
-          .from('teachers')
-          .select('*')
-          .eq('id', user.id)
+          .from("teachers")
+          .select("*")
+          .eq("id", user.id)
           .single();
 
         if (!teacher) {
           // first-time login: create teacher profile row
-          await supabase.from('teachers').insert({
+          await supabase.from("teachers").insert({
             id: user.id,
             email: user.email,
             full_name: user.user_metadata?.full_name || null,
@@ -42,7 +44,10 @@ export default function AdminLogin({ onLoggedIn }) {
           });
         } else {
           // update last_login
-          await supabase.from('teachers').update({ last_login: new Date().toISOString() }).eq('id', user.id);
+          await supabase
+            .from("teachers")
+            .update({ last_login: new Date().toISOString() })
+            .eq("id", user.id);
         }
       }
     } catch (err) {
