@@ -15,8 +15,15 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LevelProgress } from "../utils/levelProgress";
+import { supabase } from "../supabase";
 
 const { width, height } = Dimensions.get("window");
+
+const stagesPerLevel = {
+  1: 2,
+  2: 2,
+  3: 2,
+};
 
 const AnimatedLevelCard = ({
   level,
@@ -180,20 +187,22 @@ const AnimatedLevelCard = ({
             {isUnlocked && (
               <Text style={styles.levelName}>{currentLevel.name}</Text>
             )}
-            <View style={styles.progressBar}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  {
-                    width: `${(completedStages / 4) * 100}%`,
-                    backgroundColor: currentLevel.color,
-                  },
-                ]}
-              />
-            </View>
+            {level !== 1 && (
+              <View style={styles.progressBar}>
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    {
+                      width: `${(completedStages / stagesPerLevel[level]) * 100}%`,
+                      backgroundColor: currentLevel.color,
+                    },
+                  ]}
+                />
+              </View>
+            )}
             <Text style={styles.stagesText}>
               {isUnlocked
-                ? `${completedStages}/4 stages completed`
+                ? `${completedStages}/${stagesPerLevel[level]} stages completed`
                 : `Complete Level ${level - 1} to unlock`}
             </Text>
           </View>
@@ -238,8 +247,10 @@ const AnimatedLevelCard = ({
   );
 };
 
-export default function LevelSelect({ navigation }) {
+export default function LevelSelect({ navigation, route }) {
+  const { selectedCharacter: routeSelectedCharacter } = route.params || {};
   const [userData, setUserData] = useState(null);
+  const [characterIndex, setCharacterIndex] = useState(routeSelectedCharacter || 0);
   const [allProgress, setAllProgress] = useState({
     level1: [1],
     level2: [],
@@ -247,6 +258,11 @@ export default function LevelSelect({ navigation }) {
   });
   const [userStats, setUserStats] = useState({ accuracy: 0, totalAttempts: 0 });
   const [completionPercentage, setCompletionPercentage] = useState(0);
+  const [completedLevels, setCompletedLevels] = useState({
+    1: false,
+    2: false,
+    3: false,
+  });
   const [showMenu, setShowMenu] = useState(false);
 
   const headerSlide = useRef(new Animated.Value(-100)).current;
@@ -314,22 +330,46 @@ export default function LevelSelect({ navigation }) {
     try {
       const storedUserData = await AsyncStorage.getItem("userData");
       if (storedUserData) {
-        setUserData(JSON.parse(storedUserData));
+        const parsedUserData = JSON.parse(storedUserData);
+        setUserData(parsedUserData);
+
+        // Fetch character index from database
+        const userId = parsedUserData.id || parsedUserData.user_id;
+        if (userId) {
+          const { data: studentData } = await supabase
+            .from("students")
+            .select("character_index")
+            .eq("user_id", userId)
+            .single();
+          setCharacterIndex(studentData?.character_index || 0);
+        } else {
+          setCharacterIndex(0);
+        }
       }
     } catch (error) {
       console.error("Error loading user data:", error);
+      setCharacterIndex(0);
     }
   };
 
   const loadProgress = async () => {
     try {
-      const progress = await LevelProgress.getAllProgress();
+      const progress = {
+        level1: await LevelProgress.getCompletedLevels(1),
+        level2: await LevelProgress.getCompletedLevels(2),
+        level3: await LevelProgress.getCompletedLevels(3),
+      };
       const stats = await LevelProgress.getUserStats();
       const completion = await LevelProgress.getCompletionPercentage();
 
       setAllProgress(progress);
-      setUserStats(stats);
+      setUserStats(stats.overall);
       setCompletionPercentage(completion);
+      setCompletedLevels({
+        1: progress.level1.includes(stagesPerLevel[1]),
+        2: progress.level2.includes(stagesPerLevel[2]),
+        3: progress.level3.includes(stagesPerLevel[3]),
+      });
 
       if (
         userData &&
@@ -363,7 +403,27 @@ export default function LevelSelect({ navigation }) {
     console.log("Attempting to navigate to level group:", levelGroup);
     if (isLevelGroupUnlocked(levelGroup)) {
       console.log("Level group unlocked, navigating...");
-      navigation.navigate("MapLevels", { levelGroup });
+      // Navigate to Dialogue with custom text for level-specific intro
+      const levelDialogues = {
+        1: {
+          dialogueText: "These food trees dropped their slices! Let's put them together to make whole pizzas again!",
+          subtext: "",
+        },
+        2: {
+          dialogueText: "Oh, no! this river is filled with potions! Let's clean it, by pouring substances. Let's add the right fractions to create a perfect cleaning substance!",
+          subtext: "",
+        },
+        3: {
+          dialogueText: "Uh-oh…. The houses are still broken. To make the neighborhood whole again,  we need to add dissimilar fractions.",
+          subtext: "",
+        },
+      };
+      navigation.navigate("Dialogue", {
+        selectedCharacter: characterIndex,
+        ...levelDialogues[levelGroup],
+        nextScreen: "MapLevels",
+        nextScreenParams: { levelGroup, selectedCharacter: characterIndex },
+      });
     } else {
       const previousLevel = levelGroup - 1;
       Alert.alert(
@@ -376,15 +436,12 @@ export default function LevelSelect({ navigation }) {
 
   const isLevelGroupUnlocked = (levelGroup) => {
     if (levelGroup === 1) return true;
-    return (
-      allProgress[`level${levelGroup}`] &&
-      allProgress[`level${levelGroup}`].length > 0
-    );
+    return isLevelGroupCompleted(levelGroup - 1);
   };
 
   const isLevelGroupCompleted = (levelGroup) => {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
-    return levelProgress.length >= 4 && levelProgress.includes(4);
+    return levelProgress.includes(stagesPerLevel[levelGroup]);
   };
 
   const getCompletedStagesCount = (levelGroup) => {

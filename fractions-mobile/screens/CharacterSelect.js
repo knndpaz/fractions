@@ -10,6 +10,8 @@ import {
   Dimensions,
   StatusBar,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../supabase";
 
 const { width, height } = Dimensions.get("window");
 
@@ -105,6 +107,31 @@ const CharacterCard = ({ img, idx, selected, onSelect }) => {
   );
 };
 
+const getCurrentUserId = async () => {
+  try {
+    const { data } = await supabase.auth.getUser();
+    return data?.user?.id || null;
+  } catch {
+    return null;
+  }
+};
+
+const saveCharacterForUser = async (characterIdx) => {
+  try {
+    const userId = await getCurrentUserId();
+    if (!userId) return;
+    // Update students table
+    await supabase
+      .from("students")
+      .update({ character_index: characterIdx })
+      .eq("user_id", userId);
+    // Save locally for fast access
+    await AsyncStorage.setItem("character_index", String(characterIdx));
+  } catch (e) {
+    // handle error
+  }
+};
+
 export default function CharacterSelect({ navigation }) {
   const [selected, setSelected] = useState(0);
   const titleScale = useRef(new Animated.Value(0)).current;
@@ -155,7 +182,7 @@ export default function CharacterSelect({ navigation }) {
     animateCloud(cloud2Pos, 35000);
   }, []);
 
-  const handleProceed = () => {
+  const handleProceed = async () => {
     Animated.sequence([
       Animated.timing(buttonScale, {
         toValue: 0.95,
@@ -169,6 +196,8 @@ export default function CharacterSelect({ navigation }) {
         useNativeDriver: true,
       }),
     ]).start();
+
+    await saveCharacterForUser(selected);
 
     setTimeout(() => {
       navigation.navigate("Dialogue", { selectedCharacter: selected });

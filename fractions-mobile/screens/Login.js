@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../supabase";
+import { useMusic } from "../App";
 
 const { width, height } = Dimensions.get("window");
 
@@ -83,6 +84,7 @@ const ToastNotification = ({ message, type, visible, onHide }) => {
 };
 
 export default function Login({ navigation }) {
+  const { startBackgroundMusic } = useMusic();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -259,17 +261,26 @@ export default function Login({ navigation }) {
 
         await AsyncStorage.setItem("userData", JSON.stringify(userData));
 
+        // After login, fetch character_index
+        const { data: studentRows } = await supabase
+          .from("students")
+          .select("character_index")
+          .eq("user_id", data.user.id)
+          .single();
+
+        const characterIdx = studentRows?.character_index;
+        await AsyncStorage.setItem("character_index", String(characterIdx ?? ""));
+
         showToast("Login successful!", "success");
 
-        // Navigate after a short delay to show success message
+        // Start background music after successful login
+        startBackgroundMusic();
+
         setTimeout(() => {
-          if (!hasLoggedInBefore) {
-            // First time login - go to CharacterSelect
-            AsyncStorage.setItem("hasLoggedInBefore", "true");
-            navigation.replace("CharacterSelect");
+          if (characterIdx !== null && characterIdx !== undefined && characterIdx !== "") {
+            navigation.replace("Dialogue", { selectedCharacter: Number(characterIdx) });
           } else {
-            // Not first time - go directly to LevelSelect
-            navigation.replace("LevelSelect");
+            navigation.replace("CharacterSelect");
           }
         }, 1000);
       }

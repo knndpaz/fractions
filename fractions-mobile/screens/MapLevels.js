@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ImageBackground, StyleSheet, View, TouchableOpacity, Text, Image, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useMusic } from '../App';
 import { LevelProgress } from '../utils/levelProgress';
 
 export default function MapLevels({ navigation, route }) {
+  const { switchToBackgroundMusic } = useMusic();
   const levelGroup = Number(route?.params?.levelGroup || 1);
+  const selectedCharacter = route?.params?.selectedCharacter || 0;
   const [unlockedLevels, setUnlockedLevels] = useState([1]);
 
   const loadUnlocked = useCallback(async () => {
@@ -21,7 +24,9 @@ export default function MapLevels({ navigation, route }) {
     useCallback(() => {
       // reload whenever screen gains focus (after finishing a stage or navigating back)
       loadUnlocked();
-    }, [loadUnlocked])
+      // Switch back to background music when returning to map levels
+      switchToBackgroundMusic();
+    }, [loadUnlocked, switchToBackgroundMusic])
   );
 
   const resetProgress = useCallback(async () => {
@@ -46,9 +51,10 @@ export default function MapLevels({ navigation, route }) {
     
     if (isStageUnlocked(stage)) {
       console.log('Navigating to Quiz with stage:', stage, 'levelGroup:', levelGroup); // Debug log
-      navigation.navigate('Quiz', { 
-        stage: stage, 
-        levelGroup: levelGroup 
+      navigation.navigate('Quiz', {
+        stage: stage,
+        levelGroup: levelGroup,
+        selectedCharacter: selectedCharacter
       });
     } else {
       Alert.alert(
@@ -79,12 +85,10 @@ export default function MapLevels({ navigation, route }) {
     }
   };
 
-  // Define 4 stages with their positions
+  // Define 2 stages with their positions
   const allStages = [
     { number: 1, left: 140, top: 620 },
-    { number: 2, left: 330, top: 600 },
-    { number: 3, left: 170, top: 400 },
-    { number: 4, left: 130, top: 300 },
+    { number: 2, left: 210, top: 400 },
   ];
 
   const getStageColor = (stage) => {
@@ -130,9 +134,6 @@ export default function MapLevels({ navigation, route }) {
         </Text>
         <Text style={styles.debugText}>
           Stage 1: {isStageUnlocked(1) ? 'Yes' : 'No'} | Stage 2: {isStageUnlocked(2) ? 'Yes' : 'No'}
-        </Text>
-        <Text style={styles.debugText}>
-          Stage 3: {isStageUnlocked(3) ? 'Yes' : 'No'} | Stage 4: {isStageUnlocked(4) ? 'Yes' : 'No'}
         </Text>
       </View>
 

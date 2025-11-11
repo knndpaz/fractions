@@ -6,7 +6,12 @@ const BASELINE_PROGRESS = { level1: [1], level2: [], level3: [] };
 const USER_ID_KEY = 'userId'; // FIX: missing constant
 
 // Configure how many stages exist per level group
-const MAX_STAGE = 4;
+const stagesPerLevel = {
+  1: 2,
+  2: 2,
+  3: 2,
+};
+const MAX_STAGE = 2; // Keep for backward compatibility, but use stagesPerLevel where possible
 
 // Helper to safely compute percentage
 const toPct = (num, den) => {
@@ -133,15 +138,23 @@ export const LevelProgress = {
         const rows = await DatabaseService.getStudentProgress(userId);
         const row = Array.isArray(rows) ? rows.find(r => Number(r.level_group) === lg) : null;
         if (row) {
-          const currentStage = Math.max(1, Math.min(MAX_STAGE, Number(row.current_stage || 1)));
-          const completedStages = Math.max(0, Math.min(MAX_STAGE, Number(row.completed_stages || 0)));
-          const maxUnlock = Math.min(currentStage + 1, MAX_STAGE);
+        const currentStage = Math.max(1, Math.min(stagesPerLevel[lg], Number(row.current_stage || 1)));
+          const completedStages = Math.max(0, Math.min(stagesPerLevel[lg], Number(row.completed_stages || 0)));
+          const maxUnlock = Math.min(currentStage, stagesPerLevel[lg]);
           for (let s = 1; s <= maxUnlock; s++) unlocked.add(s);
           for (let s = 1; s <= completedStages; s++) unlocked.add(s);
         }
       }
     } catch (e) {
       console.warn('getCompletedLevels DB merge skipped:', e?.message || e);
+    }
+
+    // Ensure progression: for levels > 1, don't unlock any stages if previous level is not completed
+    if (lg > 1) {
+      const prevCompleted = (await LevelProgress.getCompletedLevels(lg - 1)).includes(stagesPerLevel[lg - 1]);
+      if (!prevCompleted) {
+        unlocked.clear();
+      }
     }
 
     const result = uniqSorted(Array.from(unlocked).map(clampStage));
@@ -173,7 +186,7 @@ export const LevelProgress = {
             const pct = Number(row.completion_rate);
             if (!Number.isNaN(pct) && pct >= 0) return pct;
             const completed = Number(row.completed_stages ?? 0);
-            return Math.round((Math.min(MAX_STAGE, Math.max(0, completed)) / MAX_STAGE) * 100);
+            return Math.round((Math.min(stagesPerLevel[levelGroup], Math.max(0, completed)) / stagesPerLevel[levelGroup]) * 100);
           }
         } catch {
           // fall through to local
@@ -184,8 +197,8 @@ export const LevelProgress = {
       const all = await LevelProgress.getAllProgress();
       const arr = all[`level${levelGroup}`] || [];
       const maxUnlocked = arr.length ? Math.max(...arr) : 1; // unlocked may include next stage
-      const completedLocal = Math.max(0, Math.min(MAX_STAGE, maxUnlocked - 1));
-      return Math.round((completedLocal / MAX_STAGE) * 100);
+      const completedLocal = Math.max(0, Math.min(stagesPerLevel[levelGroup], maxUnlocked - 1));
+      return Math.round((completedLocal / stagesPerLevel[levelGroup]) * 100);
     } catch {
       return 0;
     }
@@ -205,11 +218,11 @@ export const LevelProgress = {
       const updated = new Set(current);
       updated.add(1);
       updated.add(st);
-      if (isCorrect && st < MAX_STAGE) {
+      if (isCorrect && st < stagesPerLevel[lg]) {
         updated.add(st + 1);
       }
-      // Unlock next level group stage 1 if final stage completed correctly
-      if (isCorrect && st === MAX_STAGE && lg < 3) {
+      // Unlock next level group stage 1 if final stage of current level completed
+      if (st === stagesPerLevel[lg] && lg < 3) {
         const nextKey = `level${lg + 1}`;
         const nextArr = Array.isArray(all[nextKey]) ? all[nextKey] : [];
         const nextSet = new Set(nextArr);
@@ -276,14 +289,25 @@ export const LevelProgress = {
         levels[g].totalAttempts = Number(r.total_attempts ?? 0);
         levels[g].correctAnswers = Number(r.correct_answers ?? 0);
         levels[g].accuracy = Number(r.accuracy ?? toPct(levels[g].correctAnswers, levels[g].totalAttempts));
-        levels[g].completionRate = Number(r.completion_rate ?? toPct(levels[g].completedStages, MAX_STAGE));
+        levels[g].completionRate = Number(r.completion_rate ?? toPct(levels[g].completedStages, stagesPerLevel[g]));
 
         // Keep unlockedStages consistent with completed/current
         const unlocked = new Set(levels[g].unlockedStages || []);
         unlocked.add(1);
-        const maxUnlock = Math.min(Math.max(levels[g].currentStage + 1, 1), MAX_STAGE);
+        const maxUnlock = Math.min(Math.max(levels[g].currentStage + 1, 1), stagesPerLevel[g]);
         for (let s = 1; s <= maxUnlock; s++) unlocked.add(s);
         for (let s = 1; s <= levels[g].completedStages; s++) unlocked.add(s);
+
+        // Ensure progression: for levels > 1, don't unlock stages beyond 1 if previous level is not completed
+        if (g > 1) {
+          const prevCompleted = levels[g - 1].completedStages >= stagesPerLevel[g - 1];
+          if (!prevCompleted) {
+            unlocked.forEach(s => {
+              if (s > 1) unlocked.delete(s);
+            });
+          }
+        }
+
         levels[g].unlockedStages = uniqSorted(Array.from(unlocked).map(clampStage));
       }
 

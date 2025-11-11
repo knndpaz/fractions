@@ -27,7 +27,7 @@ export default function FinishScreen({ route, navigation }) {
 
   // Check if all stages in current level group are completed
   const isAllStagesCompleted = () => {
-    return isCorrect && stage === 4;
+    return isCorrect && stage === 2;
   };
 
   // Different messages based on the outcome
@@ -39,7 +39,7 @@ export default function FinishScreen({ route, navigation }) {
         backgroundColor: '#FF6B6B'
       };
     } else if (isCorrect) {
-      if (stage === 4) {
+      if (stage === 2) {
         if (levelGroup === 3) {
           return {
             text: "🎉 Amazing! You've completed all levels! Congratulations!",
@@ -48,7 +48,9 @@ export default function FinishScreen({ route, navigation }) {
           };
         } else {
           return {
-            text: `🎉 Great job! You've completed Level ${levelGroup}! Level ${levelGroup + 1} is now unlocked!`,
+            text: levelGroup === 1
+              ? "Wow, you fixed the food forests! Let's head to the Potion River"
+              : `🎉 Great job! You've completed Level ${levelGroup}! Level ${levelGroup + 1} is now unlocked!`,
             buttonText: "Continue to Next Level",
             backgroundColor: '#4CAF50'
           };
@@ -70,18 +72,29 @@ export default function FinishScreen({ route, navigation }) {
   };
 
   const handleContinue = async () => {
-    if (isCorrect && stage === 4) {
-      // If completed all stages of current level group, go back to LevelSelect to see unlocked levels
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'LevelSelect' }],
+    // Update progress for the completed stage
+    await LevelProgress.completeLevel(levelGroup, stage, isCorrect, timeRemaining);
+
+    if (isCorrect && stage === 2) {
+      // If completed all stages of current level group, show dialogue then go back to LevelSelect
+      const dialogueText = levelGroup === 3
+        ? "🎉 Amazing! You've completed all levels! Congratulations!"
+        : levelGroup === 1
+        ? "Wow, you fixed the food forests! Let's head to the Potion River"
+        : `🎉 Great job! You've completed Level ${levelGroup}! Level ${levelGroup + 1} is now unlocked!`;
+      navigation.navigate('Dialogue', {
+        selectedCharacter,
+        dialogueText,
+        subtext: "",
+        nextScreen: 'LevelSelect',
+        nextScreenParams: { selectedCharacter }
       });
     } else if (isCorrect) {
       // If correct but not final stage, go back to map to see unlocked stages
-      navigation.replace('MapLevels', { levelGroup });
+      navigation.replace('MapLevels', { levelGroup, selectedCharacter });
     } else {
       // If wrong or time up, retry the same stage
-      navigation.replace('Quiz', { stage, levelGroup });
+      navigation.replace('Quiz', { stage, levelGroup, selectedCharacter });
     }
   };
 
