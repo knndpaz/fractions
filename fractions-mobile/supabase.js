@@ -67,6 +67,13 @@ async function ensureUserProfileExists(explicitUserId) {
   }
 }
 
+// Configure how many stages exist per level group
+const stagesPerLevel = {
+  1: 2,
+  2: 2,
+  3: 2,
+};
+
 // Database service functions
 export const DatabaseService = {
   // Create or update student progress
@@ -104,7 +111,7 @@ export const DatabaseService = {
           currentProgress.completed_stages,
           isCorrect ? stage : currentProgress.completed_stages
         );
-        const completionRate = Math.round((completedStages / 4) * 100);
+        const completionRate = Math.round((completedStages / stagesPerLevel[levelGroup]) * 100);
 
         progressData = {
           completed_stages: completedStages,
@@ -131,7 +138,7 @@ export const DatabaseService = {
 
         const accuracy = isCorrect ? 100 : 0;
         const completedStages = isCorrect ? stage : 0;
-        const completionRate = Math.round((completedStages / 4) * 100);
+        const completionRate = Math.round((completedStages / stagesPerLevel[levelGroup]) * 100);
 
         progressData = {
           user_id: userId,
@@ -175,6 +182,32 @@ export const DatabaseService = {
 
       if (attemptError) {
         console.error('Error recording quiz attempt:', attemptError);
+      }
+
+      // Unlock next level if this level is completed
+      if (progressData.completed_stages === 2 && levelGroup < 3) {
+        const nextLevelData = {
+          user_id: userId,
+          level_group: levelGroup + 1,
+          completed_stages: 0,
+          current_stage: 1,
+          total_attempts: 0,
+          correct_answers: 0,
+          accuracy: 0,
+          completion_rate: 0,
+          last_played: now,
+          created_at: now,
+        };
+
+        const { error: nextError } = await supabase
+          .from('student_progress')
+          .upsert([nextLevelData], { onConflict: 'user_id,level_group' });
+
+        if (nextError) {
+          console.warn('Error unlocking next level:', nextError);
+        } else {
+          console.log(`✅ Unlocked Level ${levelGroup + 1}`);
+        }
       }
 
       console.log('✅ Progress updated successfully');

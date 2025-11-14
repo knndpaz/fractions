@@ -14,80 +14,9 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LevelProgress } from "../utils/levelProgress";
+import { supabase } from "../supabase";
 
 const { width, height } = Dimensions.get("window");
-
-const BurgerMenu = ({ visible, onClose, onLogout, onLeaderboard }) => {
-  const slideAnim = useRef(new Animated.Value(-300)).current;
-  const overlayOpacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(overlayOpacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: -300,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(overlayOpacity, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [visible]);
-
-  if (!visible) return null;
-
-  return (
-    <>
-      <Animated.View style={[styles.menuOverlay, { opacity: overlayOpacity }]}>
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          onPress={onClose}
-          activeOpacity={1}
-        />
-      </Animated.View>
-      <Animated.View
-        style={[
-          styles.burgerMenuContainer,
-          { transform: [{ translateX: slideAnim }] },
-        ]}
-      >
-        <View style={styles.menuHeader}>
-          <Text style={styles.menuTitle}>MENU</Text>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Text style={styles.closeButtonText}>✕</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.menuItem} onPress={onLeaderboard}>
-          <Text style={styles.menuItemIcon}>🏆</Text>
-          <Text style={styles.menuItemText}>Leaderboards</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.menuItem} onPress={onLogout}>
-          <Text style={styles.menuItemIcon}>🚪</Text>
-          <Text style={styles.menuItemText}>Logout</Text>
-        </TouchableOpacity>
-      </Animated.View>
-    </>
-  );
-};
 
 const AnimatedLevelCard = ({
   level,
@@ -183,45 +112,60 @@ const AnimatedLevelCard = ({
           !isUnlocked && styles.lockedCard,
         ]}
       >
-        {/* Card Background Pattern */}
-        <View style={styles.cardPattern} />
-
-        {/* Lock Icon Overlay for locked levels */}
-        {!isUnlocked && (
-          <View style={styles.lockOverlayFull}>
-            <Image
-              source={require("../assets/lock.png")}
-              style={styles.bigLockIcon}
-            />
-            <Text style={styles.lockText}>Complete Level {level - 1}</Text>
-          </View>
-        )}
-
-        {/* Level Content */}
-        <View style={styles.cardTopSection}>
-          <View style={styles.levelBadge}>
-            <Text style={styles.levelBadgeText}>LEVEL {level}</Text>
-          </View>
-          {isCompleted && (
-            <View style={styles.completedStar}>
-              <Text style={styles.starText}>⭐</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.cardMiddleSection}>
-          <View
+        {isCompleted && (
+          <Animated.View
             style={[
-              styles.levelIconBox,
-              isUnlocked && {
-                borderColor: currentLevel.color,
-                shadowColor: currentLevel.shadowColor,
+              styles.completedGlow,
+              {
+                opacity: glowOpacity,
+                backgroundColor: currentLevel.color,
               },
             ]}
+          />
+        )}
+
+        <View style={styles.levelCardContent}>
+          <View
+            style={[styles.levelIconContainer, { borderColor: borderColor }]}
           >
-            <Image source={levelImages[level]} style={styles.levelIconLarge} />
+            <Image source={levelImages[level]} style={styles.levelIcon} />
+            {!isUnlocked && (
+              <View style={styles.lockOverlay}>
+                <Image
+                  source={require("../assets/lock.png")}
+                  style={styles.lockIcon}
+                />
+              </View>
+            )}
           </View>
-        </View>
+
+          <View style={styles.levelInfo}>
+            <View style={styles.levelTitleRow}>
+              <Text style={styles.levelNumber}>LEVEL {level}</Text>
+              {isUnlocked && (
+                <Text style={styles.levelEmoji}>{currentLevel.icon}</Text>
+              )}
+            </View>
+            {isUnlocked && (
+              <Text style={styles.levelName}>{currentLevel.name}</Text>
+            )}
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: `${(completedStages / 4) * 100}%`,
+                    backgroundColor: currentLevel.color,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={styles.stagesText}>
+              {isUnlocked
+                ? `${completedStages}/4 stages completed`
+                : `Complete Level ${level - 1} to unlock`}
+            </Text>
+          </View>
 
         <View style={styles.cardBottomSection}>
           {isUnlocked && (
@@ -271,9 +215,9 @@ const AnimatedLevelCard = ({
   );
 };
 
-export default function LevelSelect({ navigation }) {
+export default function LevelSelect({ navigation, route }) {
+  const { selectedCharacter: routeSelectedCharacter } = route.params || {};
   const [userData, setUserData] = useState(null);
-  const [selectedCharacter, setSelectedCharacter] = useState(0);
   const [allProgress, setAllProgress] = useState({
     level1: [1],
     level2: [],
@@ -281,7 +225,7 @@ export default function LevelSelect({ navigation }) {
   });
   const [userStats, setUserStats] = useState({ accuracy: 0, totalAttempts: 0 });
   const [completionPercentage, setCompletionPercentage] = useState(0);
-  const [menuVisible, setMenuVisible] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const characterSlide = useRef(new Animated.Value(-50)).current;
@@ -336,7 +280,21 @@ export default function LevelSelect({ navigation }) {
     try {
       const storedUserData = await AsyncStorage.getItem("userData");
       if (storedUserData) {
-        setUserData(JSON.parse(storedUserData));
+        const parsedUserData = JSON.parse(storedUserData);
+        setUserData(parsedUserData);
+
+        // Fetch character index from database
+        const userId = parsedUserData.id || parsedUserData.user_id;
+        if (userId) {
+          const { data: studentData } = await supabase
+            .from("students")
+            .select("character_index")
+            .eq("user_id", userId)
+            .single();
+          setCharacterIndex(studentData?.character_index || 0);
+        } else {
+          setCharacterIndex(0);
+        }
       }
 
       // Load selected character
@@ -346,18 +304,28 @@ export default function LevelSelect({ navigation }) {
       }
     } catch (error) {
       console.error("Error loading user data:", error);
+      setCharacterIndex(0);
     }
   };
 
   const loadProgress = async () => {
     try {
-      const progress = await LevelProgress.getAllProgress();
+      const progress = {
+        level1: await LevelProgress.getCompletedLevels(1),
+        level2: await LevelProgress.getCompletedLevels(2),
+        level3: await LevelProgress.getCompletedLevels(3),
+      };
       const stats = await LevelProgress.getUserStats();
       const completion = await LevelProgress.getCompletionPercentage();
 
       setAllProgress(progress);
-      setUserStats(stats);
+      setUserStats(stats.overall);
       setCompletionPercentage(completion);
+      setCompletedLevels({
+        1: progress.level1.includes(stagesPerLevel[1]),
+        2: progress.level2.includes(stagesPerLevel[2]),
+        3: progress.level3.includes(stagesPerLevel[3]),
+      });
 
       if (
         userData &&
@@ -395,6 +363,7 @@ export default function LevelSelect({ navigation }) {
 
   const handleLevelPress = (levelGroup) => {
     if (isLevelGroupUnlocked(levelGroup)) {
+      console.log("Level group unlocked, navigating...");
       navigation.navigate("MapLevels", { levelGroup });
     } else {
       const previousLevel = levelGroup - 1;
@@ -408,15 +377,12 @@ export default function LevelSelect({ navigation }) {
 
   const isLevelGroupUnlocked = (levelGroup) => {
     if (levelGroup === 1) return true;
-    return (
-      allProgress[`level${levelGroup}`] &&
-      allProgress[`level${levelGroup}`].length > 0
-    );
+    return isLevelGroupCompleted(levelGroup - 1);
   };
 
   const isLevelGroupCompleted = (levelGroup) => {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
-    return levelProgress.length >= 4 && levelProgress.includes(4);
+    return levelProgress.includes(stagesPerLevel[levelGroup]);
   };
 
   const getCompletedStagesCount = (levelGroup) => {

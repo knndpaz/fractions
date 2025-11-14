@@ -1,178 +1,271 @@
 import React, { useState, useEffect } from 'react';
 import { ImageBackground, StyleSheet, View, Text, TouchableOpacity, Image } from 'react-native';
+import { Audio } from 'expo-av';
 import { LevelProgress } from '../utils/levelProgress';
 import { DatabaseService, supabase } from '../supabase';
+import { useMusic } from '../App';
 
 export default function Quiz({ navigation, route }) {
-  const [timer, setTimer] = useState(16);
+  const { switchToBattleMusic, switchToBackgroundMusic } = useMusic();
+  const [timer, setTimer] = useState(60);
+  const [quizIndex, setQuizIndex] = useState(1);
+  const [answerStatus, setAnswerStatus] = useState(null); // null | 'correct' | 'wrong'
+  const [selectedIdx, setSelectedIdx] = useState(null);
+  const [correctSound, setCorrectSound] = useState(null);
+  const [wrongSound, setWrongSound] = useState(null);
   const stage = route?.params?.stage || route?.params?.level || 1;
   const levelGroup = route?.params?.levelGroup || 1;
+  const selectedCharacter = route?.params?.selectedCharacter || 0;
 
   useEffect(() => {
-    if (timer > 0) {
+    // Switch to battle music when entering quiz
+    switchToBattleMusic();
+
+    return () => {
+      // Switch back to background music when leaving quiz
+      switchToBackgroundMusic();
+    };
+  }, []);
+
+  useEffect(() => {
+    const loadSounds = async () => {
+      const { sound: correct } = await Audio.Sound.createAsync(
+        require('../assets/audio/Check mark sound effect.mp3')
+      );
+      const { sound: wrong } = await Audio.Sound.createAsync(
+        require('../assets/audio/Wrong Answer Sound effect.mp3')
+      );
+      setCorrectSound(correct);
+      setWrongSound(wrong);
+    };
+    loadSounds();
+
+    return () => {
+      if (correctSound) correctSound.unloadAsync();
+      if (wrongSound) wrongSound.unloadAsync();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (timer > 0 && answerStatus !== 'correct') {
       const interval = setInterval(() => setTimer(t => t - 1), 1000);
       return () => clearInterval(interval);
-    } else {
-      // Time's up, record as incorrect
+    } else if (timer === 0) {
       handleTimeUp();
     }
-  }, [timer, navigation, stage, levelGroup]);
+  }, [timer, navigation, stage, levelGroup, answerStatus]);
 
   const handleTimeUp = async () => {
+    setAnswerStatus('wrong');
+    setSelectedIdx(null);
     console.log('⏰ Time up! Recording as incorrect...');
-    await LevelProgress.completeLevel(stage, levelGroup, false, 0);
-    
-    navigation.replace('FinishScreen', { 
-      selectedCharacter: 0, 
-      timeUp: true,
-      stage: stage,
-      levelGroup: levelGroup,
-      isCorrect: false
-    });
+
+    if (quizIndex < 5) {
+      // Move to next quiz in the same stage
+      setQuizIndex(quizIndex + 1);
+      setTimer(60); // Reset timer for next quiz
+    } else {
+      // All 5 quizzes completed, go to MapLevels
+      await LevelProgress.completeLevel(stage, levelGroup, false, 0);
+
+      // Special dialogue after completing any Stage 2
+      if (stage === 2) {
+        const dialogueTexts = {
+          1: "Wow, you fixed the food forests! Let’s head to the Potion River",
+          2: "Wow, you fixed the Potion River! Let’s head to the Crystal Caves",
+          3: "Thanks to you, everything is whole again! You’ve mastered adding dissimilar fractions. See you next time for a brand new adventure!"
+        };
+        navigation.navigate('Dialogue', {
+          dialogueText: dialogueTexts[levelGroup] || "Level completed!",
+          subtext: "",
+          nextScreen: "LevelSelect",
+          nextScreenParams: {},
+          selectedCharacter: selectedCharacter
+        });
+      } else {
+        navigation.replace('MapLevels', {
+          levelGroup: levelGroup
+        });
+      }
+    }
   };
 
-  // Different questions for each level group and stage
+  // Different questions for each level group and stage (5 quizzes per stage)
   const questions = {
     1: { // Level Group 1
-      1: {
+      1: Array(5).fill({
         title: "Level 1 - Stage 1",
         fraction1: { numerator: 1, denominator: 2 },
         fraction2: { numerator: 1, denominator: 4 },
         operation: '+',
         answers: ['3/4', '2/6', '1/3', '2/4'],
         correctAnswer: 0
-      },
-      2: {
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` })),
+      2: Array(5).fill({
         title: "Level 1 - Stage 2",
         fraction1: { numerator: 2, denominator: 3 },
         fraction2: { numerator: 1, denominator: 6 },
         operation: '+',
         answers: ['5/6', '3/9', '2/6', '4/6'],
         correctAnswer: 0
-      },
-      3: {
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` })),
+      3: Array(5).fill({
         title: "Level 1 - Stage 3",
         fraction1: { numerator: 3, denominator: 4 },
         fraction2: { numerator: 1, denominator: 4 },
         operation: '-',
         answers: ['1/2', '2/4', '1/4', '3/8'],
         correctAnswer: 1
-      },
-      4: {
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` })),
+      4: Array(5).fill({
         title: "Level 1 - Stage 4",
         fraction1: { numerator: 5, denominator: 6 },
         fraction2: { numerator: 1, denominator: 3 },
         operation: '+',
         answers: ['7/6', '6/9', '5/9', '1 1/6'],
         correctAnswer: 3
-      }
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` }))
     },
     2: { // Level Group 2 - More advanced questions
-      1: {
+      1: Array(5).fill({
         title: "Level 2 - Stage 1",
         fraction1: { numerator: 3, denominator: 5 },
         fraction2: { numerator: 2, denominator: 10 },
         operation: '+',
         answers: ['4/5', '5/15', '8/10', '1/2'],
         correctAnswer: 2
-      },
-      2: {
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` })),
+      2: Array(5).fill({
         title: "Level 2 - Stage 2",
         fraction1: { numerator: 5, denominator: 8 },
         fraction2: { numerator: 1, denominator: 4 },
         operation: '+',
         answers: ['7/8', '6/12', '6/8', '5/12'],
         correctAnswer: 0
-      },
-      3: {
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` })),
+      3: Array(5).fill({
         title: "Level 2 - Stage 3",
         fraction1: { numerator: 7, denominator: 10 },
         fraction2: { numerator: 3, denominator: 10 },
         operation: '-',
         answers: ['2/5', '4/10', '10/20', '1/2'],
         correctAnswer: 1
-      },
-      4: {
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` })),
+      4: Array(5).fill({
         title: "Level 2 - Stage 4",
         fraction1: { numerator: 2, denominator: 3 },
         fraction2: { numerator: 5, denominator: 12 },
         operation: '+',
         answers: ['13/12', '7/15', '1 1/12', '1/4'],
         correctAnswer: 2
-      }
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` }))
     },
     3: { // Level Group 3 - Most advanced questions
-      1: {
+      1: Array(5).fill({
         title: "Level 3 - Stage 1",
         fraction1: { numerator: 7, denominator: 8 },
         fraction2: { numerator: 1, denominator: 16 },
         operation: '+',
         answers: ['15/16', '8/24', '9/16', '1'],
         correctAnswer: 0
-      },
-      2: {
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` })),
+      2: Array(5).fill({
         title: "Level 3 - Stage 2",
         fraction1: { numerator: 3, denominator: 4 },
         fraction2: { numerator: 5, denominator: 6 },
         operation: '+',
         answers: ['8/10', '17/12', '1 5/12', '2/3'],
         correctAnswer: 2
-      },
-      3: {
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` })),
+      3: Array(5).fill({
         title: "Level 3 - Stage 3",
         fraction1: { numerator: 9, denominator: 10 },
         fraction2: { numerator: 2, denominator: 5 },
         operation: '-',
         answers: ['1/2', '7/10', '1/10', '3/5'],
         correctAnswer: 1
-      },
-      4: {
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` })),
+      4: Array(5).fill({
         title: "Level 3 - Stage 4",
         fraction1: { numerator: 4, denominator: 5 },
         fraction2: { numerator: 7, denominator: 15 },
         operation: '+',
         answers: ['11/20', '19/15', '1 4/15', '2/3'],
         correctAnswer: 2
+      }).map((q, i) => ({ ...q, title: `${q.title} - Quiz ${i+1}/5` }))
+    }
+  };
+
+  const currentQuestion = questions[levelGroup]?.[stage]?.[quizIndex - 1] || questions[1][1][0];
+
+  // Ensure your handler uses the correct parameter order
+  const handleAnswerPress = async (selectedIndex) => {
+    if (answerStatus) return; // Prevent multiple answers
+    setSelectedIdx(selectedIndex);
+    const isCorrect = selectedIndex === currentQuestion.correctAnswer;
+    setAnswerStatus(isCorrect ? 'correct' : 'wrong');
+
+    // Play sound effect
+    if (isCorrect && correctSound) {
+      await correctSound.replayAsync();
+    } else if (!isCorrect && wrongSound) {
+      await wrongSound.replayAsync();
+    }
+
+    // Only allow proceeding after pressing "Next" or "Try Again"
+  };
+
+  const handleNext = async () => {
+    if (answerStatus !== 'correct') return; // Only proceed if correct
+    if (quizIndex < 5) {
+      setQuizIndex(quizIndex + 1);
+      setTimer(60);
+      setAnswerStatus(null);
+      setSelectedIdx(null);
+    } else {
+      // All 5 quizzes completed, go to MapLevels
+      try {
+        const result = await LevelProgress.completeLevel(levelGroup, stage, true, timer);
+        console.log('✅ Progress update result:', result);
+      } catch (e) {
+        console.warn('LevelProgress.completeLevel failed (ignored):', e?.message || e);
+      }
+      try {
+        const { data } = await supabase.auth.getUser();
+        const userId = data?.user?.id;
+        if (userId) {
+          await DatabaseService.updateStudentProgress(userId, levelGroup, stage, true, timer);
+        }
+      } catch (e) {
+        console.warn('DatabaseService.updateStudentProgress failed (ignored):', e?.message || e);
+      }
+
+      // Special dialogue after completing any Stage 2
+      if (stage === 2) {
+        const dialogueTexts = {
+          1: "Wow, you fixed the food forests! Let’s head to the Potion River",
+          2: "Wow, you fixed the Potion River! Let’s head to the Crystal Caves",
+          3: "Yuhooo! You did it! You build the house and restored the whole neighborhood. You are an official fractions hero."
+        };
+        navigation.navigate('Dialogue', {
+          dialogueText: dialogueTexts[levelGroup] || "Level completed!",
+          subtext: "",
+          nextScreen: "LevelSelect",
+          nextScreenParams: {},
+          selectedCharacter: selectedCharacter
+        });
+      } else {
+        navigation.replace('MapLevels', {
+          levelGroup: levelGroup
+        });
       }
     }
   };
 
-  const currentQuestion = questions[levelGroup]?.[stage] || questions[1][1];
-
-  // Ensure your handler uses the correct parameter order
-  const handleAnswerPress = async (selectedIndex) => {
-    const isCorrect = selectedIndex === currentQuestion.correctAnswer;
-    
-    console.log('🎯 Answer selected:', selectedIndex, 'Correct:', isCorrect);
-    console.log('🎯 Stage:', stage, 'Level Group:', levelGroup, 'Time Remaining:', timer);
-    console.log('✅ Recording attempt in database...');
-
-    // Update local unlocks and DB via LevelProgress (correct order: levelGroup, stage)
-    try {
-      const result = await LevelProgress.completeLevel(levelGroup, stage, isCorrect, timer);
-      console.log('✅ Progress update result:', result);
-    } catch (e) {
-      console.warn('LevelProgress.completeLevel failed (ignored):', e?.message || e);
-    }
-
-    // Optional: direct DB call (not required if LevelProgress does it). If you keep it, use correct order.
-    try {
-      const { data } = await supabase.auth.getUser();
-      const userId = data?.user?.id;
-      if (userId) {
-        await DatabaseService.updateStudentProgress(userId, levelGroup, stage, isCorrect, timer);
-      }
-    } catch (e) {
-      console.warn('DatabaseService.updateStudentProgress failed (ignored):', e?.message || e);
-    }
-    
-    navigation.replace('FinishScreen', { 
-      selectedCharacter: 0, 
-      isCorrect: isCorrect,
-      stage: stage,
-      levelGroup: levelGroup,
-      timeRemaining: timer
-    });
+  const handleTryAgain = () => {
+    setAnswerStatus(null);
+    setSelectedIdx(null);
+    // Timer continues
   };
 
   return (
@@ -226,13 +319,44 @@ export default function Quiz({ navigation, route }) {
         {currentQuestion.answers.map((answer, idx) => (
           <TouchableOpacity
             key={idx}
-            style={styles.answerBtn}
+            style={[
+              styles.answerBtn,
+              selectedIdx === idx && answerStatus === 'correct' && idx === currentQuestion.correctAnswer
+                ? styles.correctAnswer
+                : selectedIdx === idx && answerStatus === 'wrong'
+                ? styles.wrongAnswer
+                : null
+            ]}
             onPress={() => handleAnswerPress(idx)}
+            disabled={!!answerStatus}
           >
             <Text style={styles.answerText}>{answer}</Text>
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Indicator for correct/wrong answer */}
+      {answerStatus && (
+        <View style={styles.indicatorContainer}>
+          <Text style={[
+            styles.indicatorText,
+            answerStatus === 'correct' ? styles.indicatorCorrect : styles.indicatorWrong
+          ]}>
+            {answerStatus === 'correct' ? '✅ Correct!' : '❌ Wrong!'}
+          </Text>
+          {answerStatus === 'correct' ? (
+            <TouchableOpacity style={styles.nextBtn} onPress={handleNext}>
+              <Text style={styles.nextBtnText}>
+                {quizIndex < 5 ? 'Next' : 'Finish'}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.nextBtn} onPress={handleTryAgain}>
+              <Text style={styles.nextBtnText}>Try Again</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
     </ImageBackground>
   );
 }
@@ -373,7 +497,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     elevation: 4,
   },
-  answerText: {
+  correctAnswer: {
+    backgroundColor: '#4CAF50',
+  },
+  wrongAnswer: {
+    backgroundColor: '#FF6B6B',
+  },
+  indicatorContainer: {
+    position: 'absolute',
+    bottom: 40,
+    alignSelf: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    elevation: 8,
+  },
+  indicatorText: {
+    fontFamily: 'Poppins-Bold',
+    fontSize: 22,
+    marginBottom: 10,
+  },
+  indicatorCorrect: {
+    color: '#4CAF50',
+  },
+  indicatorWrong: {
+    color: '#FF6B6B',
+  },
+  nextBtn: {
+    backgroundColor: '#FFA85C',
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    marginTop: 8,
+    elevation: 4,
+  },
+  nextBtnText: {
     color: '#fff',
     fontFamily: 'Poppins-Bold',
     fontSize: 18,

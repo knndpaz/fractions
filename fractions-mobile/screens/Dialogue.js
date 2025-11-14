@@ -35,22 +35,19 @@ export default function Dialogue({ route, navigation }) {
     require("../assets/chara6.png"),
   ];
 
-  const dialogues = [
+  const dialogues = route.params?.dialogueText ? [
     {
-      text: `Welcome, brave ${userName}! 🎮`,
-      subtext: "Your epic journey begins here...",
+      text: route.params.dialogueText,
+      subtext: route.params.subtext || "",
+    },
+  ] : [
+    {
+      text: "Hi, there Math explorers! I'm Fracxy your friendly rescuer, and I need your help. Our whole neighborhood has been broken into pieces- fractions everywhere! If we can add them together, we can make everything whole again!",
+      subtext: "",
     },
     {
-      text: "The realm needs a hero like you! ⚔️",
-      subtext: "Prepare yourself for amazing challenges ahead.",
-    },
-    {
-      text: "Master your skills, conquer the levels! 🏆",
-      subtext: "Every challenge will make you stronger!",
-    },
-    {
-      text: "Are you ready to begin your adventure? 🌟",
-      subtext: "The journey of a thousand miles starts now!",
+      text: "Are you ready to join me on this quest?",
+      subtext: "",
     },
   ];
 
@@ -82,7 +79,12 @@ export default function Dialogue({ route, navigation }) {
   const animateDialogueIn = () => {
     dialogueOpacity.setValue(0);
     dialogueScale.setValue(0.9);
-    continueTextOpacity.setValue(0);
+
+    if (currentDialogue === 0) {
+      continueTextOpacity.setValue(1);
+    } else {
+      continueTextOpacity.setValue(0);
+    }
 
     Animated.parallel([
       Animated.timing(dialogueOpacity, {
@@ -108,14 +110,16 @@ export default function Dialogue({ route, navigation }) {
       }).start();
     }
 
-    // Show continue text after delay
-    setTimeout(() => {
-      Animated.timing(continueTextOpacity, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }).start();
-    }, 800);
+    // Show continue text after delay for non-first dialogues
+    if (currentDialogue > 0) {
+      setTimeout(() => {
+        Animated.timing(continueTextOpacity, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }).start();
+      }, 800);
+    }
   };
 
   const startCharacterBounce = () => {
@@ -170,7 +174,7 @@ export default function Dialogue({ route, navigation }) {
         setCurrentDialogue(currentDialogue + 1);
       });
     } else {
-      // Final dialogue - navigate to LevelSelect
+      // Final dialogue - navigate to next screen or LevelSelect
       Animated.parallel([
         Animated.timing(dialogueOpacity, {
           toValue: 0,
@@ -183,7 +187,11 @@ export default function Dialogue({ route, navigation }) {
           useNativeDriver: true,
         }),
       ]).start(() => {
-        navigation.replace("LevelSelect");
+        if (route.params?.nextScreen && route.params?.nextScreenParams) {
+      navigation.navigate(route.params.nextScreen, { ...route.params.nextScreenParams, selectedCharacter });
+        } else {
+          navigation.replace("LevelSelect");
+        }
       });
     }
   };
@@ -203,144 +211,258 @@ export default function Dialogue({ route, navigation }) {
   });
 
   return (
-    <TouchableOpacity
-      style={{ flex: 1 }}
-      activeOpacity={1}
-      onPress={handleContinue}
-    >
+    <View style={{ flex: 1 }}>
       <StatusBar
         translucent
         backgroundColor="transparent"
         barStyle="light-content"
       />
-      <ImageBackground
-        source={require("../assets/map 1.png")}
-        style={styles.background}
-        resizeMode="cover"
-      >
-        {/* Sparkle effects */}
-        <Animated.View
-          style={[
-            styles.sparkle,
-            {
-              top: height * 0.2,
-              left: width * 0.15,
-              opacity: sparkleOpacity,
-              transform: [{ scale: sparkleScale }],
-            },
-          ]}
-        >
-          <Text style={styles.sparkleText}>✨</Text>
-        </Animated.View>
-        <Animated.View
-          style={[
-            styles.sparkle,
-            {
-              top: height * 0.3,
-              right: width * 0.1,
-              opacity: sparkleOpacity,
-              transform: [{ scale: sparkleScale }],
-            },
-          ]}
-        >
-          <Text style={styles.sparkleText}>⭐</Text>
-        </Animated.View>
-
-        <View
-          style={[
-            styles.centeredContainer,
-            { marginBottom: WHITE_BAR_HEIGHT + 30 },
-          ]}
-        >
-          <Animated.View
-            style={[
-              styles.dialogueBox,
-              {
-                opacity: dialogueOpacity,
-                transform: [{ scale: dialogueScale }],
-              },
-            ]}
+      {currentDialogue < dialogues.length - 1 ? (
+        <TouchableOpacity activeOpacity={1} onPress={handleContinue} style={{ flex: 1 }}>
+          <ImageBackground
+            source={require("../assets/map 1.png")}
+            style={styles.background}
+            resizeMode="cover"
           >
-            {/* Progress dots */}
-            <View style={styles.progressContainer}>
-              {dialogues.map((_, index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.progressDot,
-                    index === currentDialogue && styles.progressDotActive,
-                    index < currentDialogue && styles.progressDotCompleted,
-                  ]}
-                />
-              ))}
-            </View>
-
-            <View style={styles.dialogueContent}>
-              <Text style={styles.dialogueText}>
-                {dialogues[currentDialogue].text}
-              </Text>
-              <Text style={styles.dialogueSubtext}>
-                {dialogues[currentDialogue].subtext}
-              </Text>
-            </View>
-
-            {/* Dialogue tail pointing to character */}
-            <View style={styles.dialogueTail} />
-          </Animated.View>
-        </View>
-
-        {/* White bar at the bottom */}
-        <View style={[styles.whiteBar, { height: WHITE_BAR_HEIGHT }]}>
-          <Animated.View
-            style={[
-              styles.characterContainer,
-              {
-                transform: [
-                  { translateX: characterSlide },
-                  { translateY: characterBounce },
-                ],
-              },
-            ]}
-          >
-            <Image
-              source={characters[selectedCharacter]}
+            {/* Sparkle effects */}
+            <Animated.View
               style={[
-                styles.characterImg,
+                styles.sparkle,
                 {
-                  width: CHARACTER_WIDTH,
-                  height: CHARACTER_HEIGHT,
-                  top: -CHARACTER_HEIGHT / 2.1,
+                  top: height * 0.2,
+                  left: width * 0.15,
+                  opacity: sparkleOpacity,
+                  transform: [{ scale: sparkleScale }],
                 },
               ]}
-            />
-          </Animated.View>
-        </View>
+            >
+              <Text style={styles.sparkleText}>✨</Text>
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.sparkle,
+                {
+                  top: height * 0.3,
+                  right: width * 0.1,
+                  opacity: sparkleOpacity,
+                  transform: [{ scale: sparkleScale }],
+                },
+              ]}
+            >
+              <Text style={styles.sparkleText}>⭐</Text>
+            </Animated.View>
 
-        {/* Continue prompt */}
-        <Animated.View
-          style={[
-            styles.continueContainer,
-            {
-              height: WHITE_BAR_HEIGHT,
-              opacity: continueTextOpacity,
-            },
-          ]}
-        >
-          <View style={styles.continueBox}>
-            <Text style={styles.continueText}>
-              {currentDialogue < dialogues.length - 1
-                ? "👆 Tap anywhere to continue"
-                : "🎮 Tap to start your adventure"}
-            </Text>
-            <View style={styles.continueIndicator}>
-              <Text style={styles.pageIndicator}>
-                {currentDialogue + 1} / {dialogues.length}
-              </Text>
+            <View
+              style={[
+                styles.centeredContainer,
+                { marginBottom: WHITE_BAR_HEIGHT + 30 },
+              ]}
+            >
+              <Animated.View
+                style={[
+                  styles.dialogueBox,
+                  {
+                    opacity: dialogueOpacity,
+                    transform: [{ scale: dialogueScale }],
+                  },
+                ]}
+              >
+                {/* Progress dots */}
+                <View style={styles.progressContainer}>
+                  {dialogues.map((_, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.progressDot,
+                        index === currentDialogue && styles.progressDotActive,
+                        index < currentDialogue && styles.progressDotCompleted,
+                      ]}
+                    />
+                  ))}
+                </View>
+
+                <View style={styles.dialogueContent}>
+                  <Text style={styles.dialogueText}>
+                    {dialogues[currentDialogue].text}
+                  </Text>
+                  <Text style={styles.dialogueSubtext}>
+                    {dialogues[currentDialogue].subtext}
+                  </Text>
+                </View>
+
+                {/* Dialogue tail pointing to character */}
+                <View style={styles.dialogueTail} />
+              </Animated.View>
             </View>
+
+            {/* White bar at the bottom */}
+            <View style={[styles.whiteBar, { height: WHITE_BAR_HEIGHT }]}>
+              <Animated.View
+                style={[
+                  styles.characterContainer,
+                  {
+                    transform: [
+                      { translateX: characterSlide },
+                      { translateY: characterBounce },
+                    ],
+                  },
+                ]}
+              >
+                <Image
+                  source={characters[selectedCharacter]}
+                  style={[
+                    styles.characterImg,
+                    {
+                      width: CHARACTER_WIDTH,
+                      height: CHARACTER_HEIGHT,
+                      top: -CHARACTER_HEIGHT / 2.1,
+                    },
+                  ]}
+                />
+              </Animated.View>
+            </View>
+
+            {/* Continue prompt */}
+            <Animated.View
+              style={[
+                styles.continueContainer,
+                {
+                  height: WHITE_BAR_HEIGHT,
+                  opacity: continueTextOpacity,
+                  backgroundColor: "rgba(255, 255, 255, 0.8)",
+                  borderRadius: 10,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                },
+              ]}
+            >
+              <Text style={styles.continuePromptText}>Tap anywhere to continue</Text>
+            </Animated.View>
+          </ImageBackground>
+        </TouchableOpacity>
+      ) : (
+        <ImageBackground
+          source={require("../assets/map 1.png")}
+          style={styles.background}
+          resizeMode="cover"
+        >
+          {/* Sparkle effects */}
+          <Animated.View
+            style={[
+              styles.sparkle,
+              {
+                top: height * 0.2,
+                left: width * 0.15,
+                opacity: sparkleOpacity,
+                transform: [{ scale: sparkleScale }],
+              },
+            ]}
+          >
+            <Text style={styles.sparkleText}>✨</Text>
+          </Animated.View>
+          <Animated.View
+            style={[
+              styles.sparkle,
+              {
+                top: height * 0.3,
+                right: width * 0.1,
+                opacity: sparkleOpacity,
+                transform: [{ scale: sparkleScale }],
+              },
+            ]}
+          >
+            <Text style={styles.sparkleText}>⭐</Text>
+          </Animated.View>
+
+          <View
+            style={[
+              styles.centeredContainer,
+              { marginBottom: WHITE_BAR_HEIGHT + 30 },
+            ]}
+          >
+            <Animated.View
+              style={[
+                styles.dialogueBox,
+                {
+                  opacity: dialogueOpacity,
+                  transform: [{ scale: dialogueScale }],
+                },
+              ]}
+            >
+              {/* Progress dots */}
+              <View style={styles.progressContainer}>
+                {dialogues.map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.progressDot,
+                      index === currentDialogue && styles.progressDotActive,
+                      index < currentDialogue && styles.progressDotCompleted,
+                    ]}
+                  />
+                ))}
+              </View>
+
+              <View style={styles.dialogueContent}>
+                <Text style={styles.dialogueText}>
+                  {dialogues[currentDialogue].text}
+                </Text>
+                <Text style={styles.dialogueSubtext}>
+                  {dialogues[currentDialogue].subtext}
+                </Text>
+              </View>
+
+              {/* Dialogue tail pointing to character */}
+              <View style={styles.dialogueTail} />
+            </Animated.View>
           </View>
-        </Animated.View>
-      </ImageBackground>
-    </TouchableOpacity>
+
+          {/* White bar at the bottom */}
+          <View style={[styles.whiteBar, { height: WHITE_BAR_HEIGHT }]}>
+            <Animated.View
+              style={[
+                styles.characterContainer,
+                {
+                  transform: [
+                    { translateX: characterSlide },
+                    { translateY: characterBounce },
+                  ],
+                },
+              ]}
+            >
+              <Image
+                source={characters[selectedCharacter]}
+                style={[
+                  styles.characterImg,
+                  {
+                    width: CHARACTER_WIDTH,
+                    height: CHARACTER_HEIGHT,
+                    top: -CHARACTER_HEIGHT / 2.1,
+                  },
+                ]}
+              />
+            </Animated.View>
+          </View>
+
+          {/* Continue prompt */}
+          <Animated.View
+            style={[
+              styles.continueContainer,
+              {
+                height: WHITE_BAR_HEIGHT,
+                opacity: continueTextOpacity,
+              },
+            ]}
+          >
+            <TouchableOpacity style={styles.continueBox} onPress={handleContinue}>
+              <Text style={styles.continueText}>
+                Let’s Go
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </ImageBackground>
+      )}
+    </View>
   );
 }
 
@@ -485,6 +607,13 @@ const styles = StyleSheet.create({
   },
   continueText: {
     color: "#fff",
+    fontFamily: "Poppins-Bold",
+    fontSize: Math.min(width * 0.035, 14),
+    textAlign: "center",
+    letterSpacing: 0.5,
+  },
+  continuePromptText: {
+    color: "#000",
     fontFamily: "Poppins-Bold",
     fontSize: Math.min(width * 0.035, 14),
     textAlign: "center",
