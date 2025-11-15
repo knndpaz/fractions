@@ -12,19 +12,87 @@ import {
   Dimensions,
   StatusBar,
   ScrollView,
+  Modal,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LevelProgress } from "../utils/levelProgress";
-import { supabase } from "../supabase";
+
+// Conditional import for supabase (only if available)
+let supabase;
+try {
+  const supabaseModule = require("../supabase");
+  supabase = supabaseModule.supabase;
+} catch (e) {
+  console.log("Supabase not available");
+  supabase = null;
+}
 
 const { width, height } = Dimensions.get("window");
 
+// Stages per level configuration (from original LevelSelect.js)
 const stagesPerLevel = {
   1: 2,
   2: 2,
   3: 2,
 };
 
+// Burger Menu Component (converted to React Native)
+const BurgerMenu = ({ visible, onClose, onLogout, onReset }) => {
+  const slideAnim = useRef(new Animated.Value(-300)).current;
+
+  useEffect(() => {
+    Animated.timing(slideAnim, {
+      toValue: visible ? 0 : -300,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+      animationType="none"
+    >
+      {/* Overlay */}
+      <TouchableOpacity
+        style={styles.menuOverlay}
+        activeOpacity={1}
+        onPress={onClose}
+      >
+        <Animated.View
+          style={[
+            styles.menuContainer,
+            { transform: [{ translateX: slideAnim }] },
+          ]}
+          onStartShouldSetResponder={() => true}
+        >
+          <View style={styles.menuHeader}>
+            <Text style={styles.menuTitle}>MENU</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.menuItem} onPress={onReset}>
+            <Text style={styles.menuItemIcon}>🏆</Text>
+            <Text style={styles.menuItemText}>Reset Progress</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem} onPress={onLogout}>
+            <Text style={styles.menuItemIcon}>⚡</Text>
+            <Text style={styles.menuItemText}>Logout</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </TouchableOpacity>
+    </Modal>
+  );
+};
+
+// Animated Level Card Component
 const AnimatedLevelCard = ({
   level,
   isUnlocked,
@@ -99,38 +167,54 @@ const AnimatedLevelCard = ({
     outputRange: [0, 0.6],
   });
 
-  const levelImages = {
-    1: require("../assets/level1.png"),
-    2: require("../assets/level2.png"),
-    3: require("../assets/level3.png"),
+  // Use dynamic require for images to prevent bundler issues
+  const getLevelImage = (levelNum) => {
+    try {
+      switch (levelNum) {
+        case 1:
+          return require("../assets/level1.png");
+        case 2:
+          return require("../assets/level2.png");
+        case 3:
+          return require("../assets/level3.png");
+        default:
+          return null;
+      }
+    } catch (e) {
+      return null;
+    }
   };
 
   const levelInfo = {
     1: {
       name: "THE FOOD FOREST",
-      color: "#4CAF50", // Green for forest
-      gradient: "rgba(76, 175, 80, 0.15)",
+      color: "#4CAF50",
+      shadowColor: "#2E7D32",
       icon: "🌳",
     },
     2: {
       name: "THE POTION RIVER",
-      color: "#2196F3", // Blue for river
-      gradient: "rgba(33, 150, 243, 0.15)",
+      color: "#2196F3",
+      shadowColor: "#1565C0",
       icon: "🧪",
     },
     3: {
       name: "BROKEN COMMUNITY HOUSES",
-      color: "#FF5722", // Orange-red for broken/danger
-      gradient: "rgba(255, 87, 34, 0.15)",
-      icon: "🏚️",
+      color: "#FF5722",
+      shadowColor: "#D84315",
+      icon: "🏘️",
     },
   };
 
   const currentLevel = levelInfo[level];
-  const borderColor = isUnlocked ? currentLevel.color : "#bdbdbd";
-  const backgroundColor = isUnlocked
-    ? currentLevel.gradient
-    : "rgba(224, 224, 224, 0.95)";
+  const levelImage = getLevelImage(level);
+  const lockImage = (() => {
+    try {
+      return require("../assets/lock.png");
+    } catch (e) {
+      return null;
+    }
+  })();
 
   return (
     <TouchableOpacity
@@ -142,14 +226,24 @@ const AnimatedLevelCard = ({
         style={[
           styles.levelCard,
           {
-            borderColor: borderColor,
-            backgroundColor: backgroundColor,
+            borderColor: isUnlocked ? currentLevel.color : "#999",
             transform: [{ scale: scaleAnim }],
             opacity: fadeAnim,
           },
           !isUnlocked && styles.levelCardLocked,
         ]}
       >
+        {/* Lock Overlay */}
+        {!isUnlocked && (
+          <View style={styles.lockOverlayCard}>
+            {lockImage && (
+              <Image source={lockImage} style={styles.lockIconLarge} />
+            )}
+            <Text style={styles.lockText}>Complete Level {level - 1}</Text>
+          </View>
+        )}
+
+        {/* Glow effect for completed */}
         {isCompleted && (
           <Animated.View
             style={[
@@ -162,85 +256,86 @@ const AnimatedLevelCard = ({
           />
         )}
 
-        <View style={styles.levelCardContent}>
-          <View
-            style={[styles.levelIconContainer, { borderColor: borderColor }]}
-          >
-            <Image source={levelImages[level]} style={styles.levelIcon} />
-            {!isUnlocked && (
-              <View style={styles.lockOverlay}>
-                <Image
-                  source={require("../assets/lock.png")}
-                  style={styles.lockIcon}
-                />
-              </View>
-            )}
+        {/* Top Section */}
+        <View style={styles.levelCardTop}>
+          <View style={[styles.levelBadge, { backgroundColor: "#ffa75c" }]}>
+            <Text style={styles.levelBadgeText}>LEVEL {level}</Text>
           </View>
-
-          <View style={styles.levelInfo}>
-            <View style={styles.levelTitleRow}>
-              <Text style={styles.levelNumber}>LEVEL {level}</Text>
-              {isUnlocked && (
-                <Text style={styles.levelEmoji}>{currentLevel.icon}</Text>
-              )}
+          {isCompleted && (
+            <View style={styles.starContainer}>
+              <Text style={styles.starIcon}>⭐</Text>
             </View>
-            {isUnlocked && (
-              <Text style={styles.levelName}>{currentLevel.name}</Text>
-            )}
-            {level !== 1 && (
-              <View style={styles.progressBar}>
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    {
-                      width: `${(completedStages / stagesPerLevel[level]) * 100}%`,
-                      backgroundColor: currentLevel.color,
-                    },
-                  ]}
-                />
-              </View>
-            )}
-            <Text style={styles.stagesText}>
-              {isUnlocked
-                ? `${completedStages}/${stagesPerLevel[level]} stages completed`
-                : `Complete Level ${level - 1} to unlock`}
-            </Text>
-          </View>
+          )}
+        </View>
 
-          <View style={styles.levelStatus}>
-            {isUnlocked ? (
-              isCompleted ? (
-                <View
-                  style={[
-                    styles.completedBadge,
-                    { backgroundColor: currentLevel.color },
-                  ]}
-                >
-                  <Text style={styles.completedText}>✓</Text>
-                </View>
-              ) : (
-                <View
-                  style={[
-                    styles.playButton,
-                    { backgroundColor: currentLevel.color },
-                  ]}
-                >
-                  <Text style={styles.playIcon}>▶</Text>
-                </View>
-              )
-            ) : null}
+        {/* Middle Section - Level Icon */}
+        <View style={styles.levelIconSection}>
+          <View
+            style={[
+              styles.levelIconCircle,
+              {
+                borderColor: isUnlocked ? currentLevel.color : "#ddd",
+                shadowColor: isUnlocked ? currentLevel.shadowColor : "#000",
+              },
+            ]}
+          >
+            {levelImage && (
+              <Image source={levelImage} style={styles.levelIconImage} />
+            )}
           </View>
         </View>
 
-        {isCompleted && (
-          <View
+        {/* Bottom Section */}
+        <View style={styles.levelCardBottom}>
+          {isUnlocked ? (
+            <>
+              <Text style={styles.levelIconEmoji}>{currentLevel.icon}</Text>
+              <Text style={styles.levelNameText}>{currentLevel.name}</Text>
+
+              {/* Progress dots */}
+              <View style={styles.progressDots}>
+                {[1, 2].map((stage) => (
+                  <View
+                    key={stage}
+                    style={[
+                      styles.progressDot,
+                      {
+                        backgroundColor:
+                          stage <= completedStages
+                            ? currentLevel.color
+                            : "#e0e0e0",
+                        borderColor:
+                          stage <= completedStages
+                            ? currentLevel.shadowColor
+                            : "#bdbdbd",
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+
+              <Text style={styles.stagesCompletedText}>
+                {completedStages}/{stagesPerLevel[level]} Stages Completed
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.lockedPlaceholder}>???</Text>
+          )}
+        </View>
+
+        {/* Action Button */}
+        {isUnlocked && (
+          <TouchableOpacity
             style={[
-              styles.completedRibbon,
+              styles.actionButton,
               { backgroundColor: currentLevel.color },
             ]}
+            onPress={handlePress}
           >
-            <Text style={styles.ribbonText}>COMPLETED</Text>
-          </View>
+            <Text style={styles.actionButtonText}>
+              {isCompleted ? "✓ REPLAY" : "▶ PLAY"}
+            </Text>
+          </TouchableOpacity>
         )}
       </Animated.View>
     </TouchableOpacity>
@@ -248,9 +343,13 @@ const AnimatedLevelCard = ({
 };
 
 export default function LevelSelect({ navigation, route }) {
-  const { selectedCharacter: routeSelectedCharacter } = route.params || {};
+  const { selectedCharacter: routeSelectedCharacter } = route?.params || {};
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [musicOn, setMusicOn] = useState(true);
   const [userData, setUserData] = useState(null);
-  const [characterIndex, setCharacterIndex] = useState(routeSelectedCharacter || 0);
+  const [characterIndex, setCharacterIndex] = useState(
+    routeSelectedCharacter || 2
+  );
   const [allProgress, setAllProgress] = useState({
     level1: [1],
     level2: [],
@@ -263,64 +362,52 @@ export default function LevelSelect({ navigation, route }) {
     2: false,
     3: false,
   });
-  const [showMenu, setShowMenu] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const headerSlide = useRef(new Animated.Value(-100)).current;
-  const headerOpacity = useRef(new Animated.Value(0)).current;
-  const summarySlide = useRef(new Animated.Value(50)).current;
-  const summaryOpacity = useRef(new Animated.Value(0)).current;
-  const cloud1Pos = useRef(new Animated.Value(-100)).current;
-  const cloud2Pos = useRef(new Animated.Value(-150)).current;
+  // Get character images dynamically
+  const getCharacterImage = (index) => {
+    try {
+      const images = [
+        require("../assets/chara1.png"),
+        require("../assets/chara2.png"),
+        require("../assets/chara3.png"),
+        require("../assets/chara4.png"),
+        require("../assets/chara5.png"),
+        require("../assets/chara6.png"),
+      ];
+      return images[index] || images[0];
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const headerSlide = useRef(new Animated.Value(0)).current;
+  const contentFade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadUserData();
     loadProgress();
     animateEntrance();
 
-    const unsubscribe = navigation.addListener("focus", () => {
-      loadProgress();
-    });
-
-    // Cloud animations
-    const animateCloud = (cloudPos, duration) => {
-      cloudPos.setValue(-100);
-      Animated.loop(
-        Animated.timing(cloudPos, {
-          toValue: width + 100,
-          duration: duration,
-          useNativeDriver: true,
-        })
-      ).start();
-    };
-
-    animateCloud(cloud1Pos, 30000);
-    animateCloud(cloud2Pos, 35000);
-
-    return unsubscribe;
+    if (navigation) {
+      const unsubscribe = navigation.addListener("focus", () => {
+        loadProgress();
+      });
+      return unsubscribe;
+    }
   }, [navigation]);
 
   const animateEntrance = () => {
     Animated.parallel([
       Animated.timing(headerSlide, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(headerOpacity, {
         toValue: 1,
         duration: 500,
         useNativeDriver: true,
       }),
-      Animated.timing(summarySlide, {
-        toValue: 0,
-        delay: 300,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(summaryOpacity, {
+      Animated.timing(contentFade, {
         toValue: 1,
-        delay: 300,
-        duration: 500,
+        delay: 200,
+        duration: 600,
         useNativeDriver: true,
       }),
     ]).start();
@@ -333,22 +420,42 @@ export default function LevelSelect({ navigation, route }) {
         const parsedUserData = JSON.parse(storedUserData);
         setUserData(parsedUserData);
 
-        // Fetch character index from database
-        const userId = parsedUserData.id || parsedUserData.user_id;
-        if (userId) {
-          const { data: studentData } = await supabase
-            .from("students")
-            .select("character_index")
-            .eq("user_id", userId)
-            .single();
-          setCharacterIndex(studentData?.character_index || 0);
+        // Fetch character index from database if supabase is available
+        if (supabase) {
+          const userId = parsedUserData.id || parsedUserData.user_id;
+          if (userId) {
+            try {
+              const { data: studentData } = await supabase
+                .from("students")
+                .select("character_index")
+                .eq("user_id", userId)
+                .single();
+              setCharacterIndex(studentData?.character_index || 2);
+            } catch (e) {
+              console.log("Could not fetch character from supabase");
+              setCharacterIndex(2);
+            }
+          } else {
+            setCharacterIndex(2);
+          }
         } else {
-          setCharacterIndex(0);
+          setCharacterIndex(2);
         }
+      } else {
+        // Set default user data for demo
+        setUserData({
+          fullName: "Adventurer",
+          username: "player123",
+        });
+        setCharacterIndex(2);
       }
     } catch (error) {
       console.error("Error loading user data:", error);
-      setCharacterIndex(0);
+      setUserData({
+        fullName: "Adventurer",
+        username: "player123",
+      });
+      setCharacterIndex(2);
     }
   };
 
@@ -370,6 +477,7 @@ export default function LevelSelect({ navigation, route }) {
         2: progress.level2.includes(stagesPerLevel[2]),
         3: progress.level3.includes(stagesPerLevel[3]),
       });
+      setIsLoading(false);
 
       if (
         userData &&
@@ -377,12 +485,14 @@ export default function LevelSelect({ navigation, route }) {
       ) {
         await LevelProgress.syncProgressToBackend(userData);
       }
-    } catch (e) {
-      console.warn("loadProgress failed:", e?.message || e);
+    } catch (error) {
+      console.error("Error loading progress:", error);
+      setIsLoading(false);
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
+    setMenuOpen(false);
     Alert.alert("Logout", "Are you sure you want to logout?", [
       { text: "Cancel", style: "cancel" },
       {
@@ -390,7 +500,12 @@ export default function LevelSelect({ navigation, route }) {
         onPress: async () => {
           try {
             await AsyncStorage.removeItem("userData");
-            navigation.replace("Login");
+            if (navigation) {
+              navigation.replace("Login");
+            } else {
+              // For web fallback
+              window.location.reload();
+            }
           } catch (error) {
             console.error("Error logging out:", error);
           }
@@ -399,31 +514,71 @@ export default function LevelSelect({ navigation, route }) {
     ]);
   };
 
+  const handleReset = async () => {
+    setMenuOpen(false);
+    Alert.alert(
+      "Reset All Levels",
+      "This will lock Levels 2 and 3 and set Level 1 back to Stage 1. Continue?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              console.log("[Reset] Performing reset");
+              await LevelProgress.resetProgress();
+              await Promise.all(
+                [1, 2, 3].map((g) => LevelProgress.getCompletedLevels(g))
+              );
+              await loadProgress();
+              console.log("[Reset] Done");
+              Alert.alert("Success", "Progress reset successfully!");
+            } catch (error) {
+              console.warn("[Reset] Failed:", error?.message || error);
+              Alert.alert("Reset Failed", "Please try again.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleLevelPress = (levelGroup) => {
     console.log("Attempting to navigate to level group:", levelGroup);
     if (isLevelGroupUnlocked(levelGroup)) {
       console.log("Level group unlocked, navigating...");
-      // Navigate to Dialogue with custom text for level-specific intro
       const levelDialogues = {
         1: {
-          dialogueText: "These food trees dropped their slices! Let's put them together to make whole pizzas again!",
+          dialogueText:
+            "These food trees dropped their slices! Let's put them together to make whole pizzas again!",
           subtext: "",
         },
         2: {
-          dialogueText: "Oh, no! this river is filled with potions! Let's clean it, by pouring substances. Let's add the right fractions to create a perfect cleaning substance!",
+          dialogueText:
+            "Oh, no! this river is filled with potions! Let's clean it, by pouring substances. Let's add the right fractions to create a perfect cleaning substance!",
           subtext: "",
         },
         3: {
-          dialogueText: "Uh-oh…. The houses are still broken. To make the neighborhood whole again,  we need to add dissimilar fractions.",
+          dialogueText:
+            "Uh-oh…. The houses are still broken. To make the neighborhood whole again, we need to add dissimilar fractions.",
           subtext: "",
         },
       };
-      navigation.navigate("Dialogue", {
-        selectedCharacter: characterIndex,
-        ...levelDialogues[levelGroup],
-        nextScreen: "MapLevels",
-        nextScreenParams: { levelGroup, selectedCharacter: characterIndex },
-      });
+
+      if (navigation) {
+        navigation.navigate("Dialogue", {
+          selectedCharacter: characterIndex,
+          ...levelDialogues[levelGroup],
+          nextScreen: "MapLevels",
+          nextScreenParams: { levelGroup, selectedCharacter: characterIndex },
+        });
+      } else {
+        Alert.alert(
+          "Level " + levelGroup,
+          levelDialogues[levelGroup].dialogueText
+        );
+      }
     } else {
       const previousLevel = levelGroup - 1;
       Alert.alert(
@@ -459,40 +614,38 @@ export default function LevelSelect({ navigation, route }) {
     return count;
   };
 
-  const performReset = async (group) => {
+  // Get images safely
+  const bgImage = (() => {
     try {
-      console.log("[Reset] Performing reset, group:", group ?? "ALL");
-      await LevelProgress.resetProgress(group);
-      await Promise.all(
-        [1, 2, 3].map((g) => LevelProgress.getCompletedLevels(g))
-      );
-      await loadProgress();
-      console.log("[Reset] Done");
+      return require("../assets/bg1.png");
     } catch (e) {
-      console.warn("[Reset] Failed:", e?.message || e);
-      Alert.alert("Reset Failed", "Please try again.");
+      return null;
     }
-  };
+  })();
 
-  const handleTopReset = () => {
-    if (Platform.OS === "web") {
-      const ok = window.confirm(
-        "This will lock Levels 2 and 3 and set Level 1 back to Stage 1. Continue?"
-      );
-      if (ok) {
-        performReset();
-      }
-      return;
+  const profileImage = (() => {
+    try {
+      return require("../assets/profile.png");
+    } catch (e) {
+      return null;
     }
-    Alert.alert(
-      "Reset All Levels",
-      "This will lock Levels 2 and 3 and set Level 1 back to Stage 1. Continue?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Reset", style: "destructive", onPress: () => performReset() },
-      ]
+  })();
+
+  const faviconImage = (() => {
+    try {
+      return require("../assets/favicon.png");
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Loading Adventure...</Text>
+      </View>
     );
-  };
+  }
 
   return (
     <View style={styles.container}>
@@ -502,186 +655,152 @@ export default function LevelSelect({ navigation, route }) {
         barStyle="light-content"
       />
       <ImageBackground
-        source={require("../assets/bg 1.png")}
+        source={bgImage}
         style={styles.background}
         resizeMode="cover"
       >
-        {/* Animated Clouds */}
-        <Animated.View
-          style={[
-            styles.cloud,
-            { top: height * 0.15, transform: [{ translateX: cloud1Pos }] },
-          ]}
-          pointerEvents="none"
-        >
-          <View style={[styles.cloudShape, { width: 100, height: 50 }]} />
-        </Animated.View>
+        {/* Overlay */}
+        <View style={styles.overlay} />
 
-        <Animated.View
-          style={[
-            styles.cloud,
-            { top: height * 0.25, transform: [{ translateX: cloud2Pos }] },
-          ]}
-          pointerEvents="none"
-        >
-          <View style={[styles.cloudShape, { width: 80, height: 40 }]} />
-        </Animated.View>
-
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Profile Header */}
-          <Animated.View
-            style={[
-              styles.profileCard,
-              {
-                transform: [{ translateY: headerSlide }],
-                opacity: headerOpacity,
-              },
-            ]}
-          >
-            <View style={styles.profileLeft}>
-              <View style={styles.avatarContainer}>
-                <Image
-                  source={require("../assets/profile.png")}
-                  style={styles.profilePic}
-                />
-                <View style={styles.onlineIndicator} />
-              </View>
-              <View style={styles.profileInfo}>
-                <Text style={styles.profileName}>
-                  {userData?.fullName || "Loading..."}
-                </Text>
-                <Text style={styles.profileUsername}>
-                  @{userData?.username || "user"}
-                </Text>
-              </View>
+        <View style={styles.mainWrapper}>
+          {/* Header */}
+          <Animated.View style={[styles.header, { opacity: headerSlide }]}>
+            <View style={styles.headerLeft}>
+              <TouchableOpacity
+                style={styles.menuButton}
+                onPress={() => setMenuOpen(true)}
+              >
+                <Text style={styles.menuIcon}>☰</Text>
+              </TouchableOpacity>
+              {faviconImage && (
+                <Image source={faviconImage} style={styles.logo} />
+              )}
             </View>
 
             <TouchableOpacity
-              style={styles.menuButton}
-              onPress={() => setShowMenu(!showMenu)}
+              style={[styles.musicButton, !musicOn && styles.musicButtonOff]}
+              onPress={() => setMusicOn(!musicOn)}
             >
-              <Text style={styles.menuIcon}>⋮</Text>
+              <Text style={styles.musicIcon}>♪</Text>
+              {!musicOn && <View style={styles.musicSlash} />}
             </TouchableOpacity>
-
-            {showMenu && (
-              <View style={styles.dropdownMenu}>
-                <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={handleTopReset}
-                >
-                  <Text style={styles.menuItemText}>🔄 Reset Progress</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={handleLogout}
-                >
-                  <Text style={styles.menuItemText}>🚪 Logout</Text>
-                </TouchableOpacity>
-              </View>
-            )}
           </Animated.View>
 
-          {/* Welcome Message */}
-          <View style={styles.welcomeSection}>
-            <Text style={styles.welcomeTitle}>🎮 Select Your Level</Text>
-            <Text style={styles.welcomeSubtitle}>
-              Continue your learning journey
-            </Text>
-          </View>
+          <BurgerMenu
+            visible={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            onLogout={handleLogout}
+            onReset={handleReset}
+          />
 
-          {/* Level Cards */}
-          <View style={styles.levelsContainer}>
-            <AnimatedLevelCard
-              level={1}
-              isUnlocked={true}
-              isCompleted={isLevelGroupCompleted(1)}
-              completedStages={getCompletedStagesCount(1)}
-              onPress={() => handleLevelPress(1)}
-              delay={100}
-            />
-            <AnimatedLevelCard
-              level={2}
-              isUnlocked={isLevelGroupUnlocked(2)}
-              isCompleted={isLevelGroupCompleted(2)}
-              completedStages={getCompletedStagesCount(2)}
-              onPress={() => handleLevelPress(2)}
-              delay={200}
-            />
-            <AnimatedLevelCard
-              level={3}
-              isUnlocked={isLevelGroupUnlocked(3)}
-              isCompleted={isLevelGroupCompleted(3)}
-              completedStages={getCompletedStagesCount(3)}
-              onPress={() => handleLevelPress(3)}
-              delay={300}
-            />
-          </View>
-
-          {/* Stats Summary */}
-          <Animated.View
-            style={[
-              styles.summaryCard,
-              {
-                transform: [{ translateY: summarySlide }],
-                opacity: summaryOpacity,
-              },
-            ]}
+          {/* Main Content */}
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={true}
+            nestedScrollEnabled={true}
           >
-            <Text style={styles.summaryTitle}>📊 Your Statistics</Text>
+            <Animated.View style={{ opacity: contentFade }}>
+              {/* Character Hero Section */}
+              <View style={styles.characterSection}>
+                <View style={styles.characterGlow} />
+                <View style={styles.characterContainer}>
+                  {getCharacterImage(characterIndex) && (
+                    <Image
+                      source={getCharacterImage(characterIndex)}
+                      style={styles.characterImage}
+                    />
+                  )}
+                </View>
+                <View style={styles.userInfoCard}>
+                  <Text style={styles.userName}>
+                    {userData?.fullName || "Adventurer"}
+                  </Text>
+                  <Text style={styles.userHandle}>
+                    @{userData?.username || "player"}
+                  </Text>
+                </View>
+              </View>
 
-            <View style={styles.statsGrid}>
-              <View style={styles.statBox}>
-                <Text style={styles.statValue}>{completionPercentage}%</Text>
-                <Text style={styles.statLabel}>Progress</Text>
-              </View>
-              <View style={styles.statBox}>
-                <Text style={styles.statValue}>{userStats.accuracy}%</Text>
-                <Text style={styles.statLabel}>Accuracy</Text>
-              </View>
-              <View style={styles.statBox}>
-                <Text style={styles.statValue}>
-                  {getUnlockedLevelsCount()}/3
-                </Text>
-                <Text style={styles.statLabel}>Unlocked</Text>
-              </View>
-              <View style={styles.statBox}>
-                <Text style={styles.statValue}>{userStats.totalAttempts}</Text>
-                <Text style={styles.statLabel}>Attempts</Text>
-              </View>
-            </View>
-
-            {/* Overall Progress Bar */}
-            <View style={styles.overallProgressSection}>
-              <View style={styles.progressHeader}>
-                <Text style={styles.progressLabel}>Overall Progress</Text>
-                <Text style={styles.progressPercentage}>
-                  {completionPercentage}%
+              {/* Journey Header */}
+              <View style={styles.journeyHeader}>
+                <Text style={styles.journeyTitle}>⚔️ YOUR JOURNEY ⚔️</Text>
+                <Text style={styles.journeySubtitle}>
+                  Choose your next adventure
                 </Text>
               </View>
-              <View style={styles.progressBarContainer}>
-                <View
-                  style={[
-                    styles.progressBarFillMain,
-                    { width: `${completionPercentage}%` },
-                  ]}
+
+              {/* Level Cards */}
+              <View style={styles.levelsContainer}>
+                <AnimatedLevelCard
+                  level={1}
+                  isUnlocked={true}
+                  isCompleted={isLevelGroupCompleted(1)}
+                  completedStages={getCompletedStagesCount(1)}
+                  onPress={() => handleLevelPress(1)}
+                  delay={100}
+                />
+                <AnimatedLevelCard
+                  level={2}
+                  isUnlocked={isLevelGroupUnlocked(2)}
+                  isCompleted={isLevelGroupCompleted(2)}
+                  completedStages={getCompletedStagesCount(2)}
+                  onPress={() => handleLevelPress(2)}
+                  delay={200}
+                />
+                <AnimatedLevelCard
+                  level={3}
+                  isUnlocked={isLevelGroupUnlocked(3)}
+                  isCompleted={isLevelGroupCompleted(3)}
+                  completedStages={getCompletedStagesCount(3)}
+                  onPress={() => handleLevelPress(3)}
+                  delay={300}
                 />
               </View>
-            </View>
 
-            {/* Achievement Message */}
-            {completionPercentage === 100 && (
-              <View style={styles.achievementBanner}>
-                <Text style={styles.achievementText}>
-                  🏆 All Levels Completed! 🏆
-                </Text>
+              {/* Stats Panel */}
+              <View style={styles.statsPanel}>
+                <Text style={styles.statsTitle}>📊 ADVENTURE STATS</Text>
+
+                <View style={styles.statsGrid}>
+                  <View style={styles.statBox}>
+                    <Text style={styles.statValue}>
+                      {completionPercentage}%
+                    </Text>
+                    <Text style={styles.statLabel}>Complete</Text>
+                  </View>
+                  <View style={styles.statBox}>
+                    <Text style={styles.statValue}>{userStats.accuracy}%</Text>
+                    <Text style={styles.statLabel}>Accuracy</Text>
+                  </View>
+                  <View style={styles.statBox}>
+                    <Text style={styles.statValue}>
+                      {userStats.totalAttempts}
+                    </Text>
+                    <Text style={styles.statLabel}>Attempts</Text>
+                  </View>
+                </View>
+
+                {/* Progress Bar */}
+                <View style={styles.progressSection}>
+                  <Text style={styles.progressLabel}>Quest Progress</Text>
+                  <View style={styles.progressBarOuter}>
+                    <View
+                      style={[
+                        styles.progressBarInner,
+                        { width: `${completionPercentage}%` },
+                      ]}
+                    />
+                    <Text style={styles.progressText}>
+                      {completionPercentage}%
+                    </Text>
+                  </View>
+                </View>
               </View>
-            )}
-          </Animated.View>
-        </ScrollView>
+            </Animated.View>
+          </ScrollView>
+        </View>
       </ImageBackground>
     </View>
   );
@@ -693,174 +812,271 @@ const styles = StyleSheet.create({
   },
   background: {
     flex: 1,
-    width: "100%",
-    height: "100%",
   },
-  cloud: {
-    position: "absolute",
-    opacity: 0.7,
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(75, 0, 130, 0.3)",
   },
-  cloudShape: {
-    backgroundColor: "rgba(255, 255, 255, 0.6)",
-    borderRadius: 50,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  scrollView: {
+  mainWrapper: {
     flex: 1,
   },
-  scrollContent: {
-    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 20 : 60,
-    paddingBottom: 40,
-    paddingHorizontal: 20,
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
     alignItems: "center",
-    minHeight: height + 200, // Ensure content is taller than screen to enable scrolling
+    backgroundColor: "#4B0082",
   },
-  profileCard: {
+  loadingText: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  header: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "rgba(255, 255, 255, 0.98)",
-    borderRadius: 20,
-    padding: Math.min(width * 0.04, 16),
-    marginBottom: Math.min(height * 0.025, 20),
-    width: "100%",
-    maxWidth: 500,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    borderWidth: 3,
-    borderColor: "#FFA85C",
-    position: "relative",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop:
+      Platform.OS === "web"
+        ? 12
+        : StatusBar.currentHeight
+        ? StatusBar.currentHeight + 12
+        : 50,
+    paddingBottom: 12,
+    backgroundColor: "#ffa75c",
+    zIndex: 100,
   },
-  profileLeft: {
+  headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    flex: 1,
-  },
-  avatarContainer: {
-    position: "relative",
-    marginRight: 12,
-  },
-  profilePic: {
-    width: Math.min(width * 0.15, 60),
-    height: Math.min(width * 0.15, 60),
-    borderRadius: 30,
-    borderWidth: 3,
-    borderColor: "#FFA85C",
-  },
-  onlineIndicator: {
-    position: "absolute",
-    bottom: 2,
-    right: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "#1DB954",
-    borderWidth: 2,
-    borderColor: "#fff",
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.045, 18),
-    color: "#222",
-    letterSpacing: 0.3,
-  },
-  profileUsername: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.032, 13),
-    color: "#666",
+    gap: 12,
   },
   menuButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#f5f5f5",
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
     justifyContent: "center",
     alignItems: "center",
   },
   menuIcon: {
     fontSize: 24,
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  logo: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+  },
+  musicButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+  },
+  musicButtonOff: {
+    opacity: 0.5,
+  },
+  musicIcon: {
+    fontSize: 24,
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  musicSlash: {
+    position: "absolute",
+    width: 32,
+    height: 2,
+    backgroundColor: "#fff",
+    transform: [{ rotate: "45deg" }],
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+  },
+  menuContainer: {
+    width: 280,
+    height: "100%",
+    backgroundColor: "#fff",
+  },
+  menuHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 20,
+    borderBottomWidth: 2,
+    borderBottomColor: "#f0f0f0",
+  },
+  menuTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#333",
+    letterSpacing: 2,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#f0f0f0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeButtonText: {
+    fontSize: 24,
     color: "#666",
     fontWeight: "bold",
   },
-  dropdownMenu: {
-    position: "absolute",
-    top: 70,
-    right: 10,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 8,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    borderWidth: 2,
-    borderColor: "#e0e0e0",
-    zIndex: 1000,
-  },
   menuItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  menuItemIcon: {
+    fontSize: 28,
+    marginRight: 16,
   },
   menuItemText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: 14,
+    fontSize: 18,
+    fontWeight: "bold",
     color: "#333",
   },
-  welcomeSection: {
-    width: "100%",
-    maxWidth: 500,
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingVertical: 24,
+    paddingBottom: 40,
+  },
+  characterSection: {
     alignItems: "center",
-    marginBottom: Math.min(height * 0.03, 24),
+    paddingVertical: 24,
+    paddingHorizontal: 16,
   },
-  welcomeTitle: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.06, 26),
-    color: "#fff",
-    textAlign: "center",
-    textShadowColor: "rgba(0, 0, 0, 0.3)",
-    textShadowOffset: { width: 2, height: 2 },
-    textShadowRadius: 4,
+  characterGlow: {
+    position: "absolute",
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: "#FFD700",
+    opacity: 0.5,
+    top: 24,
   },
-  welcomeSubtitle: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.038, 15),
-    color: "rgba(255, 255, 255, 0.9)",
-    textAlign: "center",
-    marginTop: 4,
-  },
-  levelsContainer: {
-    width: "100%",
-    maxWidth: 500,
-    marginBottom: Math.min(height * 0.025, 20),
-    gap: Math.min(height * 0.02, 16),
-  },
-  levelCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.98)",
-    borderRadius: 20,
-    padding: Math.min(width * 0.04, 16),
+  characterContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 12,
+    borderWidth: 4,
+    borderColor: "#ffa75c",
     elevation: 8,
     shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  characterImage: {
+    width: 128,
+    height: 176,
+    resizeMode: "contain",
+  },
+  userInfoCard: {
+    marginTop: 16,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderWidth: 3,
+    borderColor: "#ffa75c",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+  },
+  userName: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+    textAlign: "center",
+  },
+  userHandle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#666",
+    textAlign: "center",
+  },
+  journeyHeader: {
+    alignItems: "center",
+    marginBottom: 24,
+    paddingHorizontal: 16,
+  },
+  journeyTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#fff",
+    letterSpacing: 2,
+    textShadowColor: "rgba(0, 0, 0, 0.5)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
+    marginBottom: 8,
+  },
+  journeySubtitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
+    opacity: 0.95,
+  },
+  levelsContainer: {
+    paddingHorizontal: 16,
+  },
+  levelCard: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 20,
+    borderWidth: 4,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
     position: "relative",
     overflow: "hidden",
   },
   levelCardLocked: {
-    backgroundColor: "rgba(224, 224, 224, 0.95)",
-    opacity: 0.7,
+    backgroundColor: "rgba(180, 180, 180, 0.85)",
+    opacity: 0.6,
+  },
+  lockOverlayCard: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+    borderRadius: 24,
+  },
+  lockIconLarge: {
+    width: 60,
+    height: 60,
+    marginBottom: 12,
+    tintColor: "#fff",
+  },
+  lockText: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    textShadowColor: "rgba(0, 0, 0, 0.5)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
   },
   completedGlow: {
     position: "absolute",
@@ -870,249 +1086,214 @@ const styles = StyleSheet.create({
     bottom: 0,
     opacity: 0.1,
   },
-  levelCardContent: {
+  levelCardTop: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
+    marginBottom: 16,
   },
-  levelIconContainer: {
-    width: Math.min(width * 0.15, 60),
-    height: Math.min(width * 0.15, 60),
-    borderRadius: 30,
+  levelBadge: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: "#fff",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  levelBadgeText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
+    letterSpacing: 1.5,
+  },
+  starContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFD700",
+    borderWidth: 3,
+    borderColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  starIcon: {
+    fontSize: 20,
+  },
+  levelIconSection: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  levelIconCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 16,
-    position: "relative",
-    borderWidth: 3,
-    borderColor: "#FFA85C",
+    borderWidth: 4,
+    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  levelIcon: {
-    width: Math.min(width * 0.1, 40),
-    height: Math.min(width * 0.1, 40),
+  levelIconImage: {
+    width: 64,
+    height: 64,
+    resizeMode: "contain",
   },
-  lockOverlay: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
-    borderRadius: 30,
+  levelCardBottom: {
+    alignItems: "center",
+    minHeight: 80,
     justifyContent: "center",
-    alignItems: "center",
   },
-  lockIcon: {
-    width: Math.min(width * 0.08, 32),
-    height: Math.min(width * 0.08, 32),
+  levelIconEmoji: {
+    fontSize: 32,
+    marginBottom: 8,
   },
-  levelInfo: {
-    flex: 1,
-  },
-  levelTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 2,
-  },
-  levelNumber: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.04, 16),
-    color: "#222",
-    letterSpacing: 0.5,
-    marginRight: 6,
-  },
-  levelEmoji: {
-    fontSize: Math.min(width * 0.045, 18),
-  },
-  levelName: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.035, 14),
-    color: "#666",
-    marginBottom: 6,
-    letterSpacing: 0.3,
-  },
-  levelTitle: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.05, 20),
-    color: "#222",
-    marginBottom: 6,
-    letterSpacing: 0.5,
-  },
-  levelTitleLocked: {
-    color: "#999",
-  },
-  progressBar: {
-    width: "100%",
-    height: 8,
-    backgroundColor: "#e0e0e0",
-    borderRadius: 4,
-    overflow: "hidden",
-    marginBottom: 6,
-  },
-  progressBarFill: {
-    height: "100%",
-    borderRadius: 4,
-  },
-  stagesText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.032, 12),
-    color: "#666",
-  },
-  levelStatus: {
-    marginLeft: 12,
-  },
-  completedBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 3,
-    borderColor: "#fff",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  completedText: {
-    color: "#fff",
-    fontSize: 24,
+  levelNameText: {
+    fontSize: 16,
     fontWeight: "bold",
+    color: "#333",
+    textAlign: "center",
+    letterSpacing: 0.5,
+    marginBottom: 12,
   },
-  playButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
+  progressDots: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 8,
+  },
+  progressDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+  },
+  stagesCompletedText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#666",
+  },
+  lockedPlaceholder: {
+    fontSize: 48,
+    fontWeight: "bold",
+    color: "#bbb",
+    letterSpacing: 8,
+  },
+  actionButton: {
+    width: "100%",
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 16,
     borderWidth: 3,
     borderColor: "#fff",
     elevation: 4,
     shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    alignItems: "center",
   },
-  playIcon: {
-    color: "#fff",
+  actionButtonText: {
     fontSize: 18,
-    marginLeft: 2,
-  },
-  completedRibbon: {
-    position: "absolute",
-    top: 12,
-    right: -30,
-    paddingVertical: 4,
-    paddingHorizontal: 40,
-    transform: [{ rotate: "45deg" }],
-    elevation: 4,
-  },
-  ribbonText: {
+    fontWeight: "bold",
     color: "#fff",
-    fontFamily: "Poppins-Bold",
-    fontSize: 10,
-    letterSpacing: 1,
+    letterSpacing: 1.5,
   },
-  summaryCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.98)",
-    borderRadius: 20,
-    padding: Math.min(width * 0.05, 20),
-    width: "100%",
-    maxWidth: 500,
+  statsPanel: {
+    marginHorizontal: 16,
+    marginTop: 24,
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 4,
+    borderColor: "#ffa75c",
     elevation: 8,
     shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
-    borderWidth: 3,
-    borderColor: "#FFA85C",
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  summaryTitle: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.048, 19),
-    color: "#222",
+  statsTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
     textAlign: "center",
-    marginBottom: Math.min(height * 0.02, 16),
-    letterSpacing: 0.5,
+    marginBottom: 20,
+    letterSpacing: 1.5,
   },
   statsGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: Math.min(height * 0.025, 20),
-    gap: 12,
+    justifyContent: "space-around",
+    marginBottom: 24,
   },
   statBox: {
-    width: "47%",
     backgroundColor: "#f8f8f8",
     borderRadius: 16,
-    padding: Math.min(width * 0.04, 16),
+    padding: 16,
     alignItems: "center",
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: "#e0e0e0",
+    minWidth: width * 0.25,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   statValue: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.08, 32),
-    color: "#FFA85C",
+    fontSize: 32,
+    fontWeight: "bold",
+    color: "#ffa75c",
     marginBottom: 4,
   },
   statLabel: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.032, 13),
+    fontSize: 12,
+    fontWeight: "bold",
     color: "#666",
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  overallProgressSection: {
-    marginTop: Math.min(height * 0.015, 12),
-  },
-  progressHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
+  progressSection: {
+    marginTop: 8,
   },
   progressLabel: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.038, 15),
+    fontSize: 16,
+    fontWeight: "bold",
     color: "#666",
+    textAlign: "center",
+    marginBottom: 12,
   },
-  progressPercentage: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.038, 15),
-    color: "#1DB954",
-  },
-  progressBarContainer: {
-    width: "100%",
-    height: 12,
+  progressBarOuter: {
+    height: 24,
     backgroundColor: "#e0e0e0",
-    borderRadius: 6,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "#d0d0d0",
-  },
-  progressBarFillMain: {
-    height: "100%",
-    backgroundColor: "#1DB954",
-    borderRadius: 4,
-  },
-  achievementBanner: {
-    backgroundColor: "#FFD700",
     borderRadius: 12,
-    padding: Math.min(width * 0.04, 16),
-    marginTop: Math.min(height * 0.02, 16),
+    overflow: "hidden",
+    position: "relative",
+    justifyContent: "center",
     alignItems: "center",
-    borderWidth: 3,
-    borderColor: "#FFA500",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
   },
-  achievementText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.042, 16),
-    color: "#8B4513",
-    letterSpacing: 0.5,
+  progressBarInner: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    height: "100%",
+    backgroundColor: "#ffa75c",
+    borderRadius: 12,
+  },
+  progressText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+    zIndex: 10,
   },
 });

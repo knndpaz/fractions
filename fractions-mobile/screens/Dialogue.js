@@ -9,10 +9,17 @@ import {
   Dimensions,
   Animated,
   StatusBar,
+  Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width, height } = Dimensions.get("window");
+
+// Responsive scaling functions
+const scale = (size) => (width / 375) * size;
+const verticalScale = (size) => (height / 812) * size;
+const moderateScale = (size, factor = 0.5) =>
+  size + (scale(size) - size) * factor;
 
 export default function Dialogue({ route, navigation }) {
   const { selectedCharacter = 0 } = route.params || {};
@@ -25,6 +32,7 @@ export default function Dialogue({ route, navigation }) {
   const characterBounce = useRef(new Animated.Value(0)).current;
   const continueTextOpacity = useRef(new Animated.Value(0)).current;
   const sparkleAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const characters = [
     require("../assets/chara1.png"),
@@ -35,27 +43,30 @@ export default function Dialogue({ route, navigation }) {
     require("../assets/chara6.png"),
   ];
 
-  const dialogues = route.params?.dialogueText ? [
-    {
-      text: route.params.dialogueText,
-      subtext: route.params.subtext || "",
-    },
-  ] : [
-    {
-      text: "Hi, there Math explorers! I'm Fracxy your friendly rescuer, and I need your help. Our whole neighborhood has been broken into pieces- fractions everywhere! If we can add them together, we can make everything whole again!",
-      subtext: "",
-    },
-    {
-      text: "Are you ready to join me on this quest?",
-      subtext: "",
-    },
-  ];
+  const dialogues = route.params?.dialogueText
+    ? [
+        {
+          text: route.params.dialogueText,
+          subtext: route.params.subtext || "",
+        },
+      ]
+    : [
+        {
+          text: "Hi, there Math explorers! I'm Fracxy your friendly rescuer, and I need your help. Our whole neighborhood has been broken into pieces- fractions everywhere! If we can add them together, we can make everything whole again!",
+          subtext: "",
+        },
+        {
+          text: "Are you ready to join me on this quest?",
+          subtext: "",
+        },
+      ];
 
   useEffect(() => {
     loadUserName();
     animateDialogueIn();
     startCharacterBounce();
     startSparkleAnimation();
+    startPulseAnimation();
   }, []);
 
   useEffect(() => {
@@ -100,7 +111,6 @@ export default function Dialogue({ route, navigation }) {
       }),
     ]).start();
 
-    // Slide character in on first dialogue
     if (currentDialogue === 0) {
       Animated.spring(characterSlide, {
         toValue: 0,
@@ -110,7 +120,6 @@ export default function Dialogue({ route, navigation }) {
       }).start();
     }
 
-    // Show continue text after delay for non-first dialogues
     if (currentDialogue > 0) {
       setTimeout(() => {
         Animated.timing(continueTextOpacity, {
@@ -156,9 +165,25 @@ export default function Dialogue({ route, navigation }) {
     ).start();
   };
 
+  const startPulseAnimation = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
   const handleContinue = () => {
     if (currentDialogue < dialogues.length - 1) {
-      // Fade out before changing dialogue
       Animated.parallel([
         Animated.timing(dialogueOpacity, {
           toValue: 0,
@@ -174,7 +199,6 @@ export default function Dialogue({ route, navigation }) {
         setCurrentDialogue(currentDialogue + 1);
       });
     } else {
-      // Final dialogue - navigate to next screen or LevelSelect
       Animated.parallel([
         Animated.timing(dialogueOpacity, {
           toValue: 0,
@@ -188,7 +212,10 @@ export default function Dialogue({ route, navigation }) {
         }),
       ]).start(() => {
         if (route.params?.nextScreen && route.params?.nextScreenParams) {
-      navigation.navigate(route.params.nextScreen, { ...route.params.nextScreenParams, selectedCharacter });
+          navigation.navigate(route.params.nextScreen, {
+            ...route.params.nextScreenParams,
+            selectedCharacter,
+          });
         } else {
           navigation.replace("LevelSelect");
         }
@@ -196,9 +223,9 @@ export default function Dialogue({ route, navigation }) {
     }
   };
 
-  const CHARACTER_WIDTH = Math.min(width * 0.28, 130);
-  const CHARACTER_HEIGHT = Math.min(height * 0.25, 200);
-  const WHITE_BAR_HEIGHT = CHARACTER_HEIGHT / 2.5;
+  const CHARACTER_WIDTH = moderateScale(120);
+  const CHARACTER_HEIGHT = moderateScale(180);
+  const WHITE_BAR_HEIGHT = verticalScale(80);
 
   const sparkleOpacity = sparkleAnim.interpolate({
     inputRange: [0, 0.5, 1],
@@ -210,29 +237,44 @@ export default function Dialogue({ route, navigation }) {
     outputRange: [0.8, 1.2, 0.8],
   });
 
+  const sparkleRotate = sparkleAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "180deg"],
+  });
+
   return (
-    <View style={{ flex: 1 }}>
+    <View style={styles.container}>
       <StatusBar
         translucent
         backgroundColor="transparent"
         barStyle="light-content"
       />
       {currentDialogue < dialogues.length - 1 ? (
-        <TouchableOpacity activeOpacity={1} onPress={handleContinue} style={{ flex: 1 }}>
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={handleContinue}
+          style={styles.container}
+        >
           <ImageBackground
             source={require("../assets/map 1.png")}
             style={styles.background}
             resizeMode="cover"
           >
-            {/* Sparkle effects */}
+            {/* Enhanced gradient overlay */}
+            <View style={styles.gradientOverlay} />
+
+            {/* Enhanced sparkle effects */}
             <Animated.View
               style={[
                 styles.sparkle,
                 {
-                  top: height * 0.2,
-                  left: width * 0.15,
+                  top: verticalScale(120),
+                  left: scale(40),
                   opacity: sparkleOpacity,
-                  transform: [{ scale: sparkleScale }],
+                  transform: [
+                    { scale: sparkleScale },
+                    { rotate: sparkleRotate },
+                  ],
                 },
               ]}
             >
@@ -242,20 +284,36 @@ export default function Dialogue({ route, navigation }) {
               style={[
                 styles.sparkle,
                 {
-                  top: height * 0.3,
-                  right: width * 0.1,
+                  top: verticalScale(200),
+                  right: scale(30),
                   opacity: sparkleOpacity,
-                  transform: [{ scale: sparkleScale }],
+                  transform: [
+                    { scale: sparkleScale },
+                    { rotate: sparkleRotate },
+                  ],
                 },
               ]}
             >
               <Text style={styles.sparkleText}>⭐</Text>
             </Animated.View>
+            <Animated.View
+              style={[
+                styles.sparkle,
+                {
+                  top: verticalScale(350),
+                  left: scale(60),
+                  opacity: sparkleOpacity,
+                  transform: [{ scale: sparkleScale }],
+                },
+              ]}
+            >
+              <Text style={styles.sparkleText}>💫</Text>
+            </Animated.View>
 
             <View
               style={[
                 styles.centeredContainer,
-                { marginBottom: WHITE_BAR_HEIGHT + 30 },
+                { marginBottom: WHITE_BAR_HEIGHT + verticalScale(30) },
               ]}
             >
               <Animated.View
@@ -285,17 +343,20 @@ export default function Dialogue({ route, navigation }) {
                   <Text style={styles.dialogueText}>
                     {dialogues[currentDialogue].text}
                   </Text>
-                  <Text style={styles.dialogueSubtext}>
-                    {dialogues[currentDialogue].subtext}
-                  </Text>
+                  {dialogues[currentDialogue].subtext ? (
+                    <Text style={styles.dialogueSubtext}>
+                      {dialogues[currentDialogue].subtext}
+                    </Text>
+                  ) : null}
                 </View>
 
-                {/* Dialogue tail pointing to character */}
+                {/* Enhanced dialogue tail */}
                 <View style={styles.dialogueTail} />
+                <View style={styles.dialogueTailShadow} />
               </Animated.View>
             </View>
 
-            {/* White bar at the bottom */}
+            {/* Enhanced white bar */}
             <View style={[styles.whiteBar, { height: WHITE_BAR_HEIGHT }]}>
               <Animated.View
                 style={[
@@ -322,21 +383,25 @@ export default function Dialogue({ route, navigation }) {
               </Animated.View>
             </View>
 
-            {/* Continue prompt */}
+            {/* Enhanced continue prompt */}
             <Animated.View
               style={[
                 styles.continueContainer,
                 {
-                  height: WHITE_BAR_HEIGHT,
                   opacity: continueTextOpacity,
-                  backgroundColor: "rgba(255, 255, 255, 0.8)",
-                  borderRadius: 10,
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
                 },
               ]}
             >
-              <Text style={styles.continuePromptText}>Tap anywhere to continue</Text>
+              <Animated.View
+                style={[
+                  styles.continuePromptBox,
+                  { transform: [{ scale: pulseAnim }] },
+                ]}
+              >
+                <Text style={styles.continuePromptText}>
+                  👆 Tap anywhere to continue
+                </Text>
+              </Animated.View>
             </Animated.View>
           </ImageBackground>
         </TouchableOpacity>
@@ -346,15 +411,18 @@ export default function Dialogue({ route, navigation }) {
           style={styles.background}
           resizeMode="cover"
         >
-          {/* Sparkle effects */}
+          {/* Enhanced gradient overlay */}
+          <View style={styles.gradientOverlay} />
+
+          {/* Enhanced sparkle effects */}
           <Animated.View
             style={[
               styles.sparkle,
               {
-                top: height * 0.2,
-                left: width * 0.15,
+                top: verticalScale(120),
+                left: scale(40),
                 opacity: sparkleOpacity,
-                transform: [{ scale: sparkleScale }],
+                transform: [{ scale: sparkleScale }, { rotate: sparkleRotate }],
               },
             ]}
           >
@@ -364,20 +432,33 @@ export default function Dialogue({ route, navigation }) {
             style={[
               styles.sparkle,
               {
-                top: height * 0.3,
-                right: width * 0.1,
+                top: verticalScale(200),
+                right: scale(30),
                 opacity: sparkleOpacity,
-                transform: [{ scale: sparkleScale }],
+                transform: [{ scale: sparkleScale }, { rotate: sparkleRotate }],
               },
             ]}
           >
             <Text style={styles.sparkleText}>⭐</Text>
           </Animated.View>
+          <Animated.View
+            style={[
+              styles.sparkle,
+              {
+                top: verticalScale(350),
+                left: scale(60),
+                opacity: sparkleOpacity,
+                transform: [{ scale: sparkleScale }],
+              },
+            ]}
+          >
+            <Text style={styles.sparkleText}>💫</Text>
+          </Animated.View>
 
           <View
             style={[
               styles.centeredContainer,
-              { marginBottom: WHITE_BAR_HEIGHT + 30 },
+              { marginBottom: WHITE_BAR_HEIGHT + verticalScale(30) },
             ]}
           >
             <Animated.View
@@ -407,17 +488,20 @@ export default function Dialogue({ route, navigation }) {
                 <Text style={styles.dialogueText}>
                   {dialogues[currentDialogue].text}
                 </Text>
-                <Text style={styles.dialogueSubtext}>
-                  {dialogues[currentDialogue].subtext}
-                </Text>
+                {dialogues[currentDialogue].subtext ? (
+                  <Text style={styles.dialogueSubtext}>
+                    {dialogues[currentDialogue].subtext}
+                  </Text>
+                ) : null}
               </View>
 
-              {/* Dialogue tail pointing to character */}
+              {/* Enhanced dialogue tail */}
               <View style={styles.dialogueTail} />
+              <View style={styles.dialogueTailShadow} />
             </Animated.View>
           </View>
 
-          {/* White bar at the bottom */}
+          {/* Enhanced white bar */}
           <View style={[styles.whiteBar, { height: WHITE_BAR_HEIGHT }]}>
             <Animated.View
               style={[
@@ -444,20 +528,21 @@ export default function Dialogue({ route, navigation }) {
             </Animated.View>
           </View>
 
-          {/* Continue prompt */}
+          {/* Enhanced continue button */}
           <Animated.View
             style={[
               styles.continueContainer,
               {
-                height: WHITE_BAR_HEIGHT,
                 opacity: continueTextOpacity,
               },
             ]}
           >
-            <TouchableOpacity style={styles.continueBox} onPress={handleContinue}>
-              <Text style={styles.continueText}>
-                Let’s Go
-              </Text>
+            <TouchableOpacity
+              style={styles.continueBox}
+              onPress={handleContinue}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.continueText}>Let's Go! 🚀</Text>
             </TouchableOpacity>
           </Animated.View>
         </ImageBackground>
@@ -467,32 +552,39 @@ export default function Dialogue({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   background: {
     flex: 1,
     width: "100%",
     height: "100%",
   },
+  gradientOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.1)",
+  },
   centeredContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 20,
+    paddingHorizontal: scale(20),
   },
   dialogueBox: {
     backgroundColor: "#fff",
-    borderRadius: 24,
-    padding: Math.min(width * 0.06, 24),
+    borderRadius: moderateScale(28),
+    padding: moderateScale(24),
     width: "100%",
-    maxWidth: 400,
-    minWidth: 280,
-    elevation: 12,
+    maxWidth: scale(420),
+    minWidth: scale(280),
+    elevation: 20,
     shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    marginTop: Math.min(height * 0.05, 40),
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    marginTop: verticalScale(40),
     alignItems: "center",
-    borderWidth: 4,
+    borderWidth: moderateScale(5),
     borderColor: "#FFA85C",
     position: "relative",
   },
@@ -500,23 +592,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: verticalScale(20),
+    gap: scale(10),
   },
   progressDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: moderateScale(10),
+    height: moderateScale(10),
+    borderRadius: moderateScale(5),
     backgroundColor: "#e0e0e0",
-    borderWidth: 2,
+    borderWidth: moderateScale(2),
     borderColor: "#bdbdbd",
   },
   progressDotActive: {
     backgroundColor: "#FFA85C",
     borderColor: "#ff8c00",
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: moderateScale(16),
+    height: moderateScale(16),
+    borderRadius: moderateScale(8),
+    elevation: 5,
+    shadowColor: "#FFA85C",
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
   },
   progressDotCompleted: {
     backgroundColor: "#1DB954",
@@ -528,53 +625,68 @@ const styles = StyleSheet.create({
   },
   dialogueText: {
     fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.05, 20),
+    fontSize: moderateScale(18),
     color: "#222",
-    lineHeight: Math.min(width * 0.07, 28),
+    lineHeight: moderateScale(28),
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: verticalScale(8),
   },
   dialogueSubtext: {
     fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.035, 14),
+    fontSize: moderateScale(14),
     color: "#666",
-    lineHeight: Math.min(width * 0.05, 20),
+    lineHeight: moderateScale(20),
     textAlign: "center",
     fontStyle: "italic",
   },
   dialogueTail: {
     position: "absolute",
-    bottom: -15,
-    left: Math.min(width * 0.08, 40),
+    bottom: moderateScale(-18),
+    left: scale(40),
     width: 0,
     height: 0,
-    borderLeftWidth: 15,
-    borderRightWidth: 15,
-    borderTopWidth: 15,
+    borderLeftWidth: moderateScale(18),
+    borderRightWidth: moderateScale(18),
+    borderTopWidth: moderateScale(18),
     borderStyle: "solid",
     backgroundColor: "transparent",
     borderLeftColor: "transparent",
     borderRightColor: "transparent",
     borderTopColor: "#FFA85C",
   },
+  dialogueTailShadow: {
+    position: "absolute",
+    bottom: moderateScale(-20),
+    left: scale(40),
+    width: 0,
+    height: 0,
+    borderLeftWidth: moderateScale(18),
+    borderRightWidth: moderateScale(18),
+    borderTopWidth: moderateScale(18),
+    borderStyle: "solid",
+    backgroundColor: "transparent",
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "rgba(0, 0, 0, 0.1)",
+  },
   whiteBar: {
     width: "100%",
     backgroundColor: "#fff",
     position: "absolute",
-    bottom: Math.min(height * 0.12, 100),
+    bottom: verticalScale(90),
     left: 0,
     flexDirection: "row",
     alignItems: "flex-end",
     zIndex: 2,
-    paddingLeft: Math.min(width * 0.06, 24),
-    elevation: 8,
+    paddingLeft: scale(24),
+    elevation: 15,
     shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -4 },
   },
   characterContainer: {
-    width: Math.min(width * 0.3, 140),
+    width: moderateScale(140),
     height: "100%",
     justifyContent: "flex-end",
     alignItems: "flex-start",
@@ -588,51 +700,66 @@ const styles = StyleSheet.create({
   },
   continueContainer: {
     position: "absolute",
-    bottom: Math.min(height * 0.12, 100),
+    bottom: verticalScale(90),
     left: 0,
     right: 0,
     justifyContent: "center",
     alignItems: "center",
     zIndex: 3,
-    paddingHorizontal: 20,
+    paddingHorizontal: scale(20),
+  },
+  continuePromptBox: {
+    backgroundColor: "rgba(255, 168, 92, 0.95)",
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(24),
+    borderRadius: moderateScale(25),
+    elevation: 10,
+    shadowColor: "#FFA85C",
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    borderWidth: moderateScale(3),
+    borderColor: "rgba(255, 255, 255, 0.5)",
   },
   continueBox: {
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
+    backgroundColor: "#FFA85C",
+    paddingVertical: verticalScale(16),
+    paddingHorizontal: scale(40),
+    borderRadius: moderateScale(30),
     alignItems: "center",
-    borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    elevation: 15,
+    shadowColor: "#FFA85C",
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 6 },
+    borderWidth: moderateScale(4),
+    borderColor: "#fff",
   },
   continueText: {
     color: "#fff",
     fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.035, 14),
+    fontSize: moderateScale(18),
     textAlign: "center",
     letterSpacing: 0.5,
+    textShadowColor: "rgba(0, 0, 0, 0.3)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 3,
   },
   continuePromptText: {
-    color: "#000",
+    color: "#fff",
     fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.035, 14),
+    fontSize: moderateScale(14),
     textAlign: "center",
     letterSpacing: 0.5,
-  },
-  continueIndicator: {
-    marginTop: 4,
-  },
-  pageIndicator: {
-    color: "#FFA85C",
-    fontFamily: "Poppins-Bold",
-    fontSize: Math.min(width * 0.03, 11),
-    letterSpacing: 1,
+    textShadowColor: "rgba(0, 0, 0, 0.2)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   sparkle: {
     position: "absolute",
     zIndex: 1,
   },
   sparkleText: {
-    fontSize: Math.min(width * 0.08, 32),
+    fontSize: moderateScale(32),
   },
 });
