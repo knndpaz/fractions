@@ -1,8 +1,27 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ImageBackground, StyleSheet, View, TouchableOpacity, Text, Image, Alert } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import { useMusic } from '../App';
-import { LevelProgress } from '../utils/levelProgress';
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import {
+  ImageBackground,
+  StyleSheet,
+  View,
+  TouchableOpacity,
+  Text,
+  Image,
+  Alert,
+  Dimensions,
+  Animated,
+  Platform,
+} from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
+import { useMusic } from "../App";
+import { LevelProgress } from "../utils/levelProgress";
+
+const { width, height } = Dimensions.get("window");
+
+// Responsive scaling functions
+const scale = (size) => (width / 375) * size;
+const verticalScale = (size) => (height / 812) * size;
+const moderateScale = (size, factor = 0.5) =>
+  size + (scale(size) - size) * factor;
 
 export default function MapLevels({ navigation, route }) {
   const { switchToBackgroundMusic } = useMusic();
@@ -10,262 +29,635 @@ export default function MapLevels({ navigation, route }) {
   const selectedCharacter = route?.params?.selectedCharacter || 0;
   const [unlockedLevels, setUnlockedLevels] = useState([1]);
 
+  // Animation refs
+  const bounceAnims = useRef([1, 2].map(() => new Animated.Value(0))).current;
+  const pulseAnims = useRef([1, 2].map(() => new Animated.Value(1))).current;
+  const sparkleAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
   const loadUnlocked = useCallback(async () => {
     const list = await LevelProgress.getCompletedLevels(levelGroup);
     setUnlockedLevels(list);
   }, [levelGroup]);
 
   useEffect(() => {
-    // initial load
     loadUnlocked();
+    startAnimations();
+
+    // Fade in animation
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      useNativeDriver: true,
+    }).start();
   }, [loadUnlocked]);
 
   useFocusEffect(
     useCallback(() => {
-      // reload whenever screen gains focus (after finishing a stage or navigating back)
       loadUnlocked();
-      // Switch back to background music when returning to map levels
       switchToBackgroundMusic();
     }, [loadUnlocked, switchToBackgroundMusic])
   );
 
+  const startAnimations = () => {
+    // Bounce animations for unlocked stages
+    bounceAnims.forEach((anim, index) => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, {
+            toValue: -8,
+            duration: 1200 + index * 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, {
+            toValue: 0,
+            duration: 1200 + index * 200,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    });
+
+    // Pulse animations for unlocked stages
+    pulseAnims.forEach((anim, index) => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, {
+            toValue: 1.1,
+            duration: 1000 + index * 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: 1000 + index * 150,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    });
+
+    // Sparkle animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(sparkleAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(sparkleAnim, {
+          toValue: 0,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
   const resetProgress = useCallback(async () => {
-    try {
-      const ok = await LevelProgress.resetProgress(levelGroup);
-      if (ok) {
-        await loadUnlocked(); // reload state from storage/DB
-        Alert.alert('Progress Reset', 'Progress for this level has been reset. Only stage 1 is unlocked.');
-      } else {
-        Alert.alert('Reset Failed', 'Could not reset progress. Check logs.');
-      }
-    } catch (e) {
-      console.error('Reset error:', e);
-      Alert.alert('Reset Error', e?.message || 'Unexpected error');
-    }
+    Alert.alert(
+      "Reset Progress",
+      "Are you sure you want to reset all progress for this level? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const ok = await LevelProgress.resetProgress(levelGroup);
+              if (ok) {
+                await loadUnlocked();
+                Alert.alert(
+                  "Success",
+                  "Progress has been reset. Only stage 1 is unlocked."
+                );
+              } else {
+                Alert.alert("Failed", "Could not reset progress. Check logs.");
+              }
+            } catch (e) {
+              console.error("Reset error:", e);
+              Alert.alert("Error", e?.message || "Unexpected error");
+            }
+          },
+        },
+      ]
+    );
   }, [levelGroup, loadUnlocked]);
 
   const handleLevelPress = (stage) => {
-    console.log('Clicking stage:', stage, 'in level group:', levelGroup); // Debug log
-    console.log('Unlocked levels:', unlockedLevels); // Debug log
-    console.log('Is stage unlocked?', isStageUnlocked(stage)); // Debug log
-    
     if (isStageUnlocked(stage)) {
-      console.log('Navigating to Quiz with stage:', stage, 'levelGroup:', levelGroup); // Debug log
-      navigation.navigate('Quiz', {
+      // Add a small scale animation on press
+      Animated.sequence([
+        Animated.timing(pulseAnims[stage - 1], {
+          toValue: 0.9,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnims[stage - 1], {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      navigation.navigate("Quiz", {
         stage: stage,
         levelGroup: levelGroup,
-        selectedCharacter: selectedCharacter
+        selectedCharacter: selectedCharacter,
       });
     } else {
       Alert.alert(
-        'Stage Locked', 
+        "🔒 Stage Locked",
         `Complete stage ${stage - 1} first to unlock this stage!`,
-        [{ text: 'OK' }]
+        [{ text: "OK" }]
       );
     }
   };
 
-  // Check if a stage is unlocked (stage 1 is always unlocked)
   const isStageUnlocked = (stage) => {
-    if (stage === 1) return true; // Stage 1 is always unlocked
+    if (stage === 1) return true;
     return LevelProgress.isLevelUnlocked(stage, unlockedLevels);
   };
 
-  // Test function to unlock stage 2
   const testUnlockStage2 = async () => {
-    console.log('🧪 Testing unlock stage 2...');
     try {
-      // Unlock stage 2 by completing stage 1 correctly in the current level group
       const result = await LevelProgress.completeLevel(levelGroup, 1, true);
-      console.log('🧪 Test result:', result);
       await loadUnlocked();
-      Alert.alert('Test Complete', 'Stage 2 should now be unlocked');
+      Alert.alert("✅ Test Complete", "Stage 2 should now be unlocked");
     } catch (error) {
-      console.error('🧪 Test error:', error);
+      console.error("Test error:", error);
+      Alert.alert("❌ Test Failed", error?.message || "Unknown error");
     }
   };
 
-  // Define 2 stages with their positions
+  // Responsive stage positions
   const allStages = [
-    { number: 1, left: 140, top: 620 },
-    { number: 2, left: 210, top: 400 },
+    {
+      number: 1,
+      left: scale(140),
+      top: verticalScale(520),
+      icon: "🎯",
+    },
+    {
+      number: 2,
+      left: scale(210),
+      top: verticalScale(340),
+      icon: "⭐",
+    },
   ];
 
   const getStageColor = (stage) => {
     if (isStageUnlocked(stage)) {
-      return stage === 1 ? '#1DB954' : '#FFA85C'; // Green for stage 1, orange for unlocked
+      return stage === 1 ? "#1DB954" : "#FFA85C";
     }
-    return '#888'; // Gray for locked stages
+    return "#888";
   };
 
-  const getStageOpacity = (stage) => {
-    return isStageUnlocked(stage) ? 1 : 0.5;
+  const getStageGradient = (stage) => {
+    if (isStageUnlocked(stage)) {
+      return stage === 1 ? "#15803d" : "#ff8c00";
+    }
+    return "#666";
   };
+
+  const sparkleOpacity = sparkleAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.3, 1, 0.3],
+  });
+
+  const sparkleRotate = sparkleAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
 
   return (
-    <ImageBackground
-      source={require('../assets/map 1.png')}
-      style={styles.background}
-      resizeMode="cover"
-    >
-      {/* Back Button */}
-      <TouchableOpacity style={styles.menuBtn} onPress={() => navigation.goBack()}>
-        <Image source={require('../assets/menu.png')} style={styles.menuIcon} />
-      </TouchableOpacity>
+    <View style={styles.container}>
+      <ImageBackground
+        source={require("../assets/map 1.png")}
+        style={styles.background}
+        resizeMode="cover"
+      >
+        {/* Gradient overlay for better contrast */}
+        <View style={styles.gradientOverlay} />
 
-      {/* Reset Button (for testing - remove in production) */}
-      <TouchableOpacity style={styles.resetBtn} onPress={resetProgress}>
-        <Text style={styles.resetBtnText}>Reset</Text>
-      </TouchableOpacity>
+        {/* Animated sparkles */}
+        <Animated.View
+          style={[
+            styles.sparkle,
+            {
+              top: verticalScale(150),
+              left: scale(50),
+              opacity: sparkleOpacity,
+              transform: [{ rotate: sparkleRotate }],
+            },
+          ]}
+        >
+          <Text style={styles.sparkleText}>✨</Text>
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.sparkle,
+            {
+              top: verticalScale(300),
+              right: scale(40),
+              opacity: sparkleOpacity,
+              transform: [{ rotate: sparkleRotate }],
+            },
+          ]}
+        >
+          <Text style={styles.sparkleText}>💫</Text>
+        </Animated.View>
 
-      {/* Test Button to unlock stage 2 */}
-      <TouchableOpacity style={[styles.resetBtn, { right: 80 }]} onPress={testUnlockStage2}>
-        <Text style={styles.resetBtnText}>Test S2</Text>
-      </TouchableOpacity>
+        {/* Back Button */}
+        <TouchableOpacity
+          style={styles.menuBtn}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Image
+            source={require("../assets/menu.png")}
+            style={styles.menuIcon}
+          />
+        </TouchableOpacity>
 
-      {/* Progress indicator */}
-      <View style={styles.progressContainer}>
-        <Text style={styles.progressText}>
-          Level {levelGroup} - Stages: {unlockedLevels.length} / {allStages.length}
-        </Text>
-        {/* Debug info */}
-        <Text style={styles.debugText}>
-          Unlocked: [{unlockedLevels.join(', ')}]
-        </Text>
-        <Text style={styles.debugText}>
-          Stage 1: {isStageUnlocked(1) ? 'Yes' : 'No'} | Stage 2: {isStageUnlocked(2) ? 'Yes' : 'No'}
-        </Text>
-      </View>
+        {/* Reset Button (for testing) */}
+        <TouchableOpacity
+          style={styles.resetBtn}
+          onPress={resetProgress}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.resetBtnText}>🔄 Reset</Text>
+        </TouchableOpacity>
 
-      {/* Stage Buttons */}
-      {allStages.map((stageData) => {
-        const isUnlocked = isStageUnlocked(stageData.number);
-        
-        return (
-          <TouchableOpacity
-            key={stageData.number}
-            style={[
-              styles.stageBtn,
-              {
-                backgroundColor: getStageColor(stageData.number),
-                left: stageData.left,
-                top: stageData.top,
-                opacity: getStageOpacity(stageData.number),
-              },
-            ]}
-            onPress={() => handleLevelPress(stageData.number)}
-            disabled={!isUnlocked}
-          >
-            <Text style={styles.stageBtnText}>{stageData.number}</Text>
-            {!isUnlocked && (
-              <View style={styles.lockOverlay}>
-                <Text style={styles.lockIcon}>🔒</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        );
-      })}
-    </ImageBackground>
+        {/* Test Button to unlock stage 2 */}
+        <TouchableOpacity
+          style={[styles.testBtn]}
+          onPress={testUnlockStage2}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.resetBtnText}>🧪 Test</Text>
+        </TouchableOpacity>
+
+        {/* Enhanced Progress Card */}
+        <Animated.View style={[styles.progressCard, { opacity: fadeAnim }]}>
+          <View style={styles.progressHeader}>
+            <Text style={styles.levelTitle}>Level {levelGroup}</Text>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {unlockedLevels.length}/{allStages.length}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.progressBar}>
+            <View
+              style={[
+                styles.progressBarFill,
+                {
+                  width: `${(unlockedLevels.length / allStages.length) * 100}%`,
+                },
+              ]}
+            />
+          </View>
+          <Text style={styles.progressSubtext}>
+            {unlockedLevels.length === allStages.length
+              ? "🎉 All stages completed!"
+              : `Complete stage ${unlockedLevels.length} to unlock more!`}
+          </Text>
+        </Animated.View>
+
+        {/* Stage Buttons with Path */}
+        {allStages.map((stageData, index) => {
+          const isUnlocked = isStageUnlocked(stageData.number);
+          const prevStage = index > 0 ? allStages[index - 1] : null;
+
+          return (
+            <React.Fragment key={stageData.number}>
+              {/* Path line to previous stage */}
+              {prevStage && (
+                <View
+                  style={[
+                    styles.pathLine,
+                    {
+                      left: prevStage.left + moderateScale(24),
+                      top: prevStage.top + moderateScale(24),
+                      width: Math.sqrt(
+                        Math.pow(stageData.left - prevStage.left, 2) +
+                          Math.pow(stageData.top - prevStage.top, 2)
+                      ),
+                      transform: [
+                        {
+                          rotate: `${Math.atan2(
+                            stageData.top - prevStage.top,
+                            stageData.left - prevStage.left
+                          )}rad`,
+                        },
+                      ],
+                      backgroundColor: isUnlocked ? "#1DB954" : "#ccc",
+                    },
+                  ]}
+                />
+              )}
+
+              {/* Stage Button */}
+              <Animated.View
+                style={[
+                  styles.stageBtnContainer,
+                  {
+                    left: stageData.left,
+                    top: stageData.top,
+                    transform: [
+                      { translateY: isUnlocked ? bounceAnims[index] : 0 },
+                      { scale: isUnlocked ? pulseAnims[index] : 1 },
+                    ],
+                  },
+                ]}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.stageBtn,
+                    {
+                      backgroundColor: getStageColor(stageData.number),
+                      opacity: isUnlocked ? 1 : 0.6,
+                    },
+                  ]}
+                  onPress={() => handleLevelPress(stageData.number)}
+                  disabled={!isUnlocked}
+                  activeOpacity={0.8}
+                >
+                  {/* Inner shadow for depth */}
+                  <View
+                    style={[
+                      styles.stageBtnInner,
+                      { backgroundColor: getStageGradient(stageData.number) },
+                    ]}
+                  />
+
+                  <View style={styles.stageContent}>
+                    <Text style={styles.stageIcon}>{stageData.icon}</Text>
+                    <Text style={styles.stageBtnText}>{stageData.number}</Text>
+                  </View>
+
+                  {!isUnlocked && (
+                    <View style={styles.lockOverlay}>
+                      <Text style={styles.lockIcon}>🔒</Text>
+                    </View>
+                  )}
+
+                  {isUnlocked && <View style={styles.glowEffect} />}
+                </TouchableOpacity>
+
+                {/* Stage label */}
+                <View style={styles.stageLabel}>
+                  <Text style={styles.stageLabelText}>
+                    Stage {stageData.number}
+                  </Text>
+                </View>
+              </Animated.View>
+            </React.Fragment>
+          );
+        })}
+      </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  background: { flex: 1, width: '100%', height: '100%' },
+  container: {
+    flex: 1,
+  },
+  background: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+  },
+  gradientOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.15)",
+  },
   menuBtn: {
-    position: 'absolute',
-    top: 40,
-    left: 20,
+    position: "absolute",
+    top: Platform.OS === "ios" ? verticalScale(50) : verticalScale(40),
+    left: scale(20),
     zIndex: 10,
-    width: 56,
-    height: 56,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFA85C',
-    borderRadius: 12,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    borderWidth: 2,
-    borderColor: '#fff',
+    width: moderateScale(56),
+    height: moderateScale(56),
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#FFA85C",
+    borderRadius: moderateScale(16),
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    borderWidth: moderateScale(3),
+    borderColor: "#fff",
   },
   menuIcon: {
-    width: 48,
-    height: 48,
-    resizeMode: 'contain',
+    width: moderateScale(40),
+    height: moderateScale(40),
+    resizeMode: "contain",
   },
   resetBtn: {
-    position: 'absolute',
-    top: 40,
-    right: 20,
+    position: "absolute",
+    top: Platform.OS === "ios" ? verticalScale(50) : verticalScale(40),
+    right: scale(20),
     zIndex: 10,
-    backgroundColor: '#FF6B6B',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: "#FF6B6B",
+    paddingHorizontal: scale(16),
+    paddingVertical: verticalScale(10),
+    borderRadius: moderateScale(12),
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    borderWidth: moderateScale(2),
+    borderColor: "#fff",
+  },
+  testBtn: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? verticalScale(50) : verticalScale(40),
+    right: scale(100),
+    zIndex: 10,
+    backgroundColor: "#6B5FFF",
+    paddingHorizontal: scale(16),
+    paddingVertical: verticalScale(10),
+    borderRadius: moderateScale(12),
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    borderWidth: moderateScale(2),
+    borderColor: "#fff",
   },
   resetBtnText: {
-    color: '#fff',
-    fontFamily: 'Poppins-Bold',
-    fontSize: 12,
+    color: "#fff",
+    fontFamily: "Poppins-Bold",
+    fontSize: moderateScale(12),
   },
-  progressContainer: {
-    position: 'absolute',
-    top: 100,
-    alignSelf: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  progressCard: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? verticalScale(120) : verticalScale(110),
+    alignSelf: "center",
+    backgroundColor: "#fff",
+    borderRadius: moderateScale(20),
+    paddingHorizontal: scale(24),
+    paddingVertical: verticalScale(16),
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    minWidth: scale(280),
+    borderWidth: moderateScale(3),
+    borderColor: "#FFA85C",
+  },
+  progressHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: verticalScale(12),
+  },
+  levelTitle: {
+    fontFamily: "Poppins-Bold",
+    fontSize: moderateScale(20),
+    color: "#222",
+  },
+  badge: {
+    backgroundColor: "#FFA85C",
+    borderRadius: moderateScale(12),
+    paddingHorizontal: scale(12),
+    paddingVertical: verticalScale(4),
     elevation: 4,
   },
-  progressText: {
-    fontFamily: 'Poppins-Bold',
-    fontSize: 14,
-    color: '#222',
-    textAlign: 'center',
+  badgeText: {
+    fontFamily: "Poppins-Bold",
+    fontSize: moderateScale(14),
+    color: "#fff",
   },
-  debugText: {
-    fontFamily: 'Poppins-Regular',
-    fontSize: 10,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 4,
+  progressBar: {
+    width: "100%",
+    height: verticalScale(10),
+    backgroundColor: "#e0e0e0",
+    borderRadius: moderateScale(5),
+    overflow: "hidden",
+    marginBottom: verticalScale(8),
+  },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: "#1DB954",
+    borderRadius: moderateScale(5),
+  },
+  progressSubtext: {
+    fontFamily: "Poppins-Regular",
+    fontSize: moderateScale(12),
+    color: "#666",
+    textAlign: "center",
+  },
+  pathLine: {
+    position: "absolute",
+    height: moderateScale(4),
+    backgroundColor: "#ccc",
+    zIndex: 1,
+    borderRadius: moderateScale(2),
+  },
+  stageBtnContainer: {
+    position: "absolute",
+    zIndex: 5,
+    alignItems: "center",
   },
   stageBtn: {
-    position: 'absolute',
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 5,
+    width: moderateScale(64),
+    height: moderateScale(64),
+    borderRadius: moderateScale(32),
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    borderWidth: moderateScale(4),
+    borderColor: "#fff",
+    overflow: "hidden",
+  },
+  stageBtnInner: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: "30%",
+    opacity: 0.5,
+  },
+  stageContent: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stageIcon: {
+    fontSize: moderateScale(20),
+    marginBottom: verticalScale(2),
+  },
+  stageBtnText: {
+    color: "#fff",
+    fontFamily: "Poppins-Bold",
+    fontSize: moderateScale(18),
+    textShadowColor: "rgba(0, 0, 0, 0.3)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 3,
+  },
+  lockOverlay: {
+    position: "absolute",
+    top: moderateScale(-8),
+    right: moderateScale(-8),
+    backgroundColor: "#fff",
+    borderRadius: moderateScale(16),
+    width: moderateScale(28),
+    height: moderateScale(28),
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    borderWidth: moderateScale(2),
+    borderColor: "#888",
+  },
+  lockIcon: {
+    fontSize: moderateScale(14),
+  },
+  glowEffect: {
+    position: "absolute",
+    width: "120%",
+    height: "120%",
+    borderRadius: moderateScale(40),
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+  },
+  stageLabel: {
+    marginTop: verticalScale(8),
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    paddingHorizontal: scale(12),
+    paddingVertical: verticalScale(4),
+    borderRadius: moderateScale(12),
     elevation: 4,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOpacity: 0.15,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
-  stageBtnText: {
-    color: '#fff',
-    fontFamily: 'Poppins-Bold',
-    fontSize: 22,
-    fontWeight: 'bold',
+  stageLabelText: {
+    fontFamily: "Poppins-Bold",
+    fontSize: moderateScale(11),
+    color: "#222",
+    textAlign: "center",
   },
-  lockOverlay: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 2,
+  sparkle: {
+    position: "absolute",
+    zIndex: 1,
   },
-  lockIcon: {
-    fontSize: 12,
+  sparkleText: {
+    fontSize: moderateScale(32),
   },
 });
