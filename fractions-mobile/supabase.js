@@ -1,6 +1,13 @@
 // Only import polyfill in React Native environment
 if (typeof window === 'undefined') {
   require('react-native-url-polyfill/auto');
+  // Polyfill localStorage to prevent ReferenceError
+  global.localStorage = {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+    clear: () => {},
+  };
 }
 
 import { createClient } from '@supabase/supabase-js';
@@ -11,7 +18,7 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: typeof window !== 'undefined' ? localStorage : AsyncStorage,
+    storage: AsyncStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
