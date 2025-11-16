@@ -1,18 +1,15 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
-  ImageBackground,
-  StyleSheet,
   View,
   Text,
   TouchableOpacity,
+  StyleSheet,
+  Dimensions,
+  ScrollView,
   Image,
   Alert,
-  Platform,
-  Animated,
-  Dimensions,
-  StatusBar,
-  ScrollView,
   Modal,
+  Animated,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LevelProgress } from "../utils/levelProgress";
@@ -28,15 +25,17 @@ try {
 }
 
 const { width, height } = Dimensions.get("window");
+const CARD_WIDTH = width * 0.75;
+const CARD_SPACING = 15;
 
-// Stages per level configuration (from original LevelSelect.js)
+// Stages per level configuration
 const stagesPerLevel = {
   1: 2,
   2: 2,
   3: 2,
 };
 
-// Burger Menu Component (converted to React Native)
+// Burger Menu Component
 const BurgerMenu = ({ visible, onClose, onLogout, onReset }) => {
   const slideAnim = useRef(new Animated.Value(-300)).current;
 
@@ -92,263 +91,15 @@ const BurgerMenu = ({ visible, onClose, onLogout, onReset }) => {
   );
 };
 
-// Animated Level Card Component
-const AnimatedLevelCard = ({
-  level,
-  isUnlocked,
-  isCompleted,
-  completedStages,
-  onPress,
-  delay = 0,
-}) => {
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    // Entrance animation
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        delay,
-        tension: 50,
-        friction: 7,
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        delay,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    // Glow animation for completed levels
-    if (isCompleted) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(glowAnim, {
-            toValue: 1,
-            duration: 1500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(glowAnim, {
-            toValue: 0,
-            duration: 1500,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    }
-  }, [isCompleted]);
-
-  const handlePress = () => {
-    if (!isUnlocked) return;
-
-    Animated.sequence([
-      Animated.timing(scaleAnim, {
-        toValue: 0.95,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        tension: 100,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    setTimeout(() => onPress(), 100);
-  };
-
-  const glowOpacity = glowAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 0.6],
-  });
-
-  // Use dynamic require for images to prevent bundler issues
-  const getLevelImage = (levelNum) => {
-    try {
-      switch (levelNum) {
-        case 1:
-          return require("../assets/level1.png");
-        case 2:
-          return require("../assets/level2.png");
-        case 3:
-          return require("../assets/level3.png");
-        default:
-          return null;
-      }
-    } catch (e) {
-      return null;
-    }
-  };
-
-  const levelInfo = {
-    1: {
-      name: "THE FOOD FOREST",
-      color: "#4CAF50",
-      shadowColor: "#2E7D32",
-      icon: "🌳",
-    },
-    2: {
-      name: "THE POTION RIVER",
-      color: "#2196F3",
-      shadowColor: "#1565C0",
-      icon: "🧪",
-    },
-    3: {
-      name: "BROKEN COMMUNITY HOUSES",
-      color: "#FF5722",
-      shadowColor: "#D84315",
-      icon: "🏘️",
-    },
-  };
-
-  const currentLevel = levelInfo[level];
-  const levelImage = getLevelImage(level);
-  const lockImage = (() => {
-    try {
-      return require("../assets/lock.png");
-    } catch (e) {
-      return null;
-    }
-  })();
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.8}
-      onPress={handlePress}
-      disabled={!isUnlocked}
-    >
-      <Animated.View
-        style={[
-          styles.levelCard,
-          {
-            borderColor: isUnlocked ? currentLevel.color : "#999",
-            transform: [{ scale: scaleAnim }],
-            opacity: fadeAnim,
-          },
-          !isUnlocked && styles.levelCardLocked,
-        ]}
-      >
-        {/* Lock Overlay */}
-        {!isUnlocked && (
-          <View style={styles.lockOverlayCard}>
-            {lockImage && (
-              <Image source={lockImage} style={styles.lockIconLarge} />
-            )}
-            <Text style={styles.lockText}>Complete Level {level - 1}</Text>
-          </View>
-        )}
-
-        {/* Glow effect for completed */}
-        {isCompleted && (
-          <Animated.View
-            style={[
-              styles.completedGlow,
-              {
-                opacity: glowOpacity,
-                backgroundColor: currentLevel.color,
-              },
-            ]}
-          />
-        )}
-
-        {/* Top Section */}
-        <View style={styles.levelCardTop}>
-          <View style={[styles.levelBadge, { backgroundColor: "#ffa75c" }]}>
-            <Text style={styles.levelBadgeText}>LEVEL {level}</Text>
-          </View>
-          {isCompleted && (
-            <View style={styles.starContainer}>
-              <Text style={styles.starIcon}>⭐</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Middle Section - Level Icon */}
-        <View style={styles.levelIconSection}>
-          <View
-            style={[
-              styles.levelIconCircle,
-              {
-                borderColor: isUnlocked ? currentLevel.color : "#ddd",
-                shadowColor: isUnlocked ? currentLevel.shadowColor : "#000",
-              },
-            ]}
-          >
-            {levelImage && (
-              <Image source={levelImage} style={styles.levelIconImage} />
-            )}
-          </View>
-        </View>
-
-        {/* Bottom Section */}
-        <View style={styles.levelCardBottom}>
-          {isUnlocked ? (
-            <>
-              <Text style={styles.levelIconEmoji}>{currentLevel.icon}</Text>
-              <Text style={styles.levelNameText}>{currentLevel.name}</Text>
-
-              {/* Progress dots */}
-              <View style={styles.progressDots}>
-                {[1, 2].map((stage) => (
-                  <View
-                    key={stage}
-                    style={[
-                      styles.progressDot,
-                      {
-                        backgroundColor:
-                          stage <= completedStages
-                            ? currentLevel.color
-                            : "#e0e0e0",
-                        borderColor:
-                          stage <= completedStages
-                            ? currentLevel.shadowColor
-                            : "#bdbdbd",
-                      },
-                    ]}
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.stagesCompletedText}>
-                {completedStages}/{stagesPerLevel[level]} Stages Completed
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.lockedPlaceholder}>???</Text>
-          )}
-        </View>
-
-        {/* Action Button */}
-        {isUnlocked && (
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              { backgroundColor: currentLevel.color },
-            ]}
-            onPress={handlePress}
-          >
-            <Text style={styles.actionButtonText}>
-              {isCompleted ? "✓ REPLAY" : "▶ PLAY"}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </Animated.View>
-    </TouchableOpacity>
-  );
-};
-
-export default function LevelSelect({ navigation, route }) {
+export default function AdventureGame({ navigation, route }) {
   const { selectedCharacter: routeSelectedCharacter } = route?.params || {};
   const [menuOpen, setMenuOpen] = useState(false);
   const [musicOn, setMusicOn] = useState(true);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [selectedLevel, setSelectedLevel] = useState(null);
   const [userData, setUserData] = useState(null);
   const [characterIndex, setCharacterIndex] = useState(
-    routeSelectedCharacter || 2
+    routeSelectedCharacter || 0
   );
   const [allProgress, setAllProgress] = useState({
     level1: [1],
@@ -364,16 +115,16 @@ export default function LevelSelect({ navigation, route }) {
   });
   const [isLoading, setIsLoading] = useState(true);
 
+  const scrollViewRef = useRef(null);
+
   // Get character images dynamically
   const getCharacterImage = (index) => {
     try {
       const images = [
-        require("../assets/chara1.png"),
-        require("../assets/chara2.png"),
-        require("../assets/chara3.png"),
-        require("../assets/chara4.png"),
-        require("../assets/chara5.png"),
-        require("../assets/chara6.png"),
+        require("../assets/player1.png"),
+        require("../assets/player2.png"),
+        require("../assets/player3.png"),
+        require("../assets/player4.png"),
       ];
       return images[index] || images[0];
     } catch (e) {
@@ -381,13 +132,66 @@ export default function LevelSelect({ navigation, route }) {
     }
   };
 
-  const headerSlide = useRef(new Animated.Value(0)).current;
-  const contentFade = useRef(new Animated.Value(0)).current;
+  // Get level background images
+  const getLevelBackgroundImage = (levelNum) => {
+    try {
+      switch (levelNum) {
+        case 1:
+          return require("../assets/foodforest.jpg");
+        case 2:
+          return require("../assets/potionriver.jpg");
+        case 3:
+          return require("../assets/brokenhouses.jpg");
+        default:
+          return null;
+      }
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const levels = [
+    {
+      id: 1,
+      difficulty: "Easy",
+      title: "The Food Forest",
+      levelGroup: 1,
+      isUnlocked: true,
+      isCompleted: completedLevels[1],
+      completedStages: getCompletedStagesCount(1),
+      backgroundImage: getLevelBackgroundImage(1),
+      dialogueText:
+        "These food trees dropped their slices! Let's put them together to make whole pizzas again!",
+    },
+    {
+      id: 2,
+      difficulty: "Medium",
+      title: "The Potion River",
+      levelGroup: 2,
+      isUnlocked: isLevelGroupUnlocked(2),
+      isCompleted: completedLevels[2],
+      completedStages: getCompletedStagesCount(2),
+      backgroundImage: getLevelBackgroundImage(2),
+      dialogueText:
+        "Oh, no! this river is filled with potions! Let's clean it, by pouring substances. Let's add the right fractions to create a perfect cleaning substance!",
+    },
+    {
+      id: 3,
+      difficulty: "Difficult",
+      title: "Broken Community Houses",
+      levelGroup: 3,
+      isUnlocked: isLevelGroupUnlocked(3),
+      isCompleted: completedLevels[3],
+      completedStages: getCompletedStagesCount(3),
+      backgroundImage: getLevelBackgroundImage(3),
+      dialogueText:
+        "Uh-oh…. The houses are still broken. To make the neighborhood whole again, we need to add dissimilar fractions.",
+    },
+  ];
 
   useEffect(() => {
     loadUserData();
     loadProgress();
-    animateEntrance();
 
     if (navigation) {
       const unsubscribe = navigation.addListener("focus", () => {
@@ -396,22 +200,6 @@ export default function LevelSelect({ navigation, route }) {
       return unsubscribe;
     }
   }, [navigation]);
-
-  const animateEntrance = () => {
-    Animated.parallel([
-      Animated.timing(headerSlide, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(contentFade, {
-        toValue: 1,
-        delay: 200,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
 
   const loadUserData = async () => {
     try {
@@ -430,32 +218,32 @@ export default function LevelSelect({ navigation, route }) {
                 .select("character_index")
                 .eq("user_id", userId)
                 .single();
-              setCharacterIndex(studentData?.character_index || 2);
+              setCharacterIndex(studentData?.character_index || 0);
             } catch (e) {
               console.log("Could not fetch character from supabase");
-              setCharacterIndex(2);
+              setCharacterIndex(routeSelectedCharacter || 0);
             }
           } else {
-            setCharacterIndex(2);
+            setCharacterIndex(routeSelectedCharacter || 0);
           }
         } else {
-          setCharacterIndex(2);
+          setCharacterIndex(routeSelectedCharacter || 0);
         }
       } else {
         // Set default user data for demo
         setUserData({
-          fullName: "Adventurer",
+          fullName: "Super Hero",
           username: "player123",
         });
-        setCharacterIndex(2);
+        setCharacterIndex(routeSelectedCharacter || 0);
       }
     } catch (error) {
       console.error("Error loading user data:", error);
       setUserData({
-        fullName: "Adventurer",
+        fullName: "Super Hero",
         username: "player123",
       });
-      setCharacterIndex(2);
+      setCharacterIndex(routeSelectedCharacter || 0);
     }
   };
 
@@ -504,7 +292,9 @@ export default function LevelSelect({ navigation, route }) {
               navigation.replace("Login");
             } else {
               // For web fallback
-              window.location.reload();
+              if (typeof window !== "undefined") {
+                window.location.reload();
+              }
             }
           } catch (error) {
             console.error("Error logging out:", error);
@@ -544,264 +334,293 @@ export default function LevelSelect({ navigation, route }) {
     );
   };
 
-  const handleLevelPress = (levelGroup) => {
-    console.log("Attempting to navigate to level group:", levelGroup);
-    if (isLevelGroupUnlocked(levelGroup)) {
+  const handleScroll = (event) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / (CARD_WIDTH + CARD_SPACING));
+    setActiveIndex(index);
+  };
+
+  const scrollToIndex = (index) => {
+    scrollViewRef.current?.scrollTo({
+      x: index * (CARD_WIDTH + CARD_SPACING),
+      animated: true,
+    });
+    setActiveIndex(index);
+  };
+
+  const handleCardPress = (level, index) => {
+    console.log("Attempting to navigate to level group:", level.levelGroup);
+
+    if (level.isUnlocked) {
+      setSelectedLevel(level.id);
+      scrollToIndex(index);
+
       console.log("Level group unlocked, navigating...");
-      const levelDialogues = {
-        1: {
-          dialogueText:
-            "These food trees dropped their slices! Let's put them together to make whole pizzas again!",
-          subtext: "",
-        },
-        2: {
-          dialogueText:
-            "Oh, no! this river is filled with potions! Let's clean it, by pouring substances. Let's add the right fractions to create a perfect cleaning substance!",
-          subtext: "",
-        },
-        3: {
-          dialogueText:
-            "Uh-oh…. The houses are still broken. To make the neighborhood whole again, we need to add dissimilar fractions.",
-          subtext: "",
-        },
-      };
 
       if (navigation) {
         navigation.navigate("Dialogue", {
           selectedCharacter: characterIndex,
-          ...levelDialogues[levelGroup],
+          dialogueText: level.dialogueText,
+          subtext: "",
           nextScreen: "MapLevels",
-          nextScreenParams: { levelGroup, selectedCharacter: characterIndex },
+          nextScreenParams: {
+            levelGroup: level.levelGroup,
+            selectedCharacter: characterIndex,
+          },
         });
       } else {
-        Alert.alert(
-          "Level " + levelGroup,
-          levelDialogues[levelGroup].dialogueText
-        );
+        Alert.alert(`Level ${level.levelGroup}`, level.dialogueText);
       }
     } else {
-      const previousLevel = levelGroup - 1;
+      const previousLevel = level.levelGroup - 1;
       Alert.alert(
-        `Level ${levelGroup} Locked`,
-        `Complete all stages of Level ${previousLevel} first to unlock Level ${levelGroup}!`,
+        `Level ${level.levelGroup} Locked`,
+        `Complete all stages of Level ${previousLevel} first to unlock Level ${level.levelGroup}!`,
         [{ text: "OK" }]
       );
     }
   };
 
-  const isLevelGroupUnlocked = (levelGroup) => {
+  function isLevelGroupUnlocked(levelGroup) {
     if (levelGroup === 1) return true;
     return isLevelGroupCompleted(levelGroup - 1);
-  };
+  }
 
-  const isLevelGroupCompleted = (levelGroup) => {
+  function isLevelGroupCompleted(levelGroup) {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
     return levelProgress.includes(stagesPerLevel[levelGroup]);
-  };
+  }
 
-  const getCompletedStagesCount = (levelGroup) => {
+  function getCompletedStagesCount(levelGroup) {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
     if (levelProgress.length === 0) return 0;
     const maxUnlockedStage = Math.max(...levelProgress);
     return Math.max(0, maxUnlockedStage - 1);
-  };
-
-  const getUnlockedLevelsCount = () => {
-    let count = 0;
-    if (isLevelGroupUnlocked(1)) count++;
-    if (isLevelGroupUnlocked(2)) count++;
-    if (isLevelGroupUnlocked(3)) count++;
-    return count;
-  };
-
-  // Get images safely
-  const bgImage = (() => {
-    try {
-      return require("../assets/bg1.png");
-    } catch (e) {
-      return null;
-    }
-  })();
-
-  const profileImage = (() => {
-    try {
-      return require("../assets/profile.png");
-    } catch (e) {
-      return null;
-    }
-  })();
-
-  const faviconImage = (() => {
-    try {
-      return require("../assets/favicon.png");
-    } catch (e) {
-      return null;
-    }
-  })();
+  }
 
   if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading Adventure...</Text>
-      </View>
-    );
+    return null; // Return nothing while loading
   }
 
   return (
     <View style={styles.container}>
-      <StatusBar
-        translucent
-        backgroundColor="transparent"
-        barStyle="light-content"
-      />
-      <ImageBackground
-        source={bgImage}
-        style={styles.background}
-        resizeMode="cover"
-      >
-        {/* Overlay */}
-        <View style={styles.overlay} />
+      <View style={styles.gradientContainer}>
+        {/* Background Image */}
+        <Image
+          source={require("../assets/bg 1.png")}
+          style={styles.backgroundImage}
+          resizeMode="cover"
+        />
 
-        <View style={styles.mainWrapper}>
-          {/* Header */}
-          <Animated.View style={[styles.header, { opacity: headerSlide }]}>
-            <View style={styles.headerLeft}>
-              <TouchableOpacity
-                style={styles.menuButton}
-                onPress={() => setMenuOpen(true)}
-              >
-                <Text style={styles.menuIcon}>☰</Text>
-              </TouchableOpacity>
-              {faviconImage && (
-                <Image source={faviconImage} style={styles.logo} />
-              )}
-            </View>
+        {/* Animated background elements */}
+        <View style={styles.backgroundElements}>
+          <View style={[styles.bubble, styles.bubble1]} />
+          <View style={[styles.bubble, styles.bubble2]} />
+          <View style={[styles.bubble, styles.bubble3]} />
+          <View style={[styles.bubble, styles.bubble4]} />
 
-            <TouchableOpacity
-              style={[styles.musicButton, !musicOn && styles.musicButtonOff]}
-              onPress={() => setMusicOn(!musicOn)}
-            >
-              <Text style={styles.musicIcon}>♪</Text>
-              {!musicOn && <View style={styles.musicSlash} />}
-            </TouchableOpacity>
-          </Animated.View>
+          {/* Clouds */}
+          <Text style={[styles.cloud, styles.cloud1]}>☁️</Text>
+          <Text style={[styles.cloud, styles.cloud2]}>☁️</Text>
+          <Text style={[styles.cloud, styles.cloud3]}>☁️</Text>
+        </View>
 
-          <BurgerMenu
-            visible={menuOpen}
-            onClose={() => setMenuOpen(false)}
-            onLogout={handleLogout}
-            onReset={handleReset}
+        {/* Header */}
+        <View style={styles.header}>
+          {/* Logo */}
+          <Image
+            source={require("../assets/favicon.png")}
+            style={styles.logoImage}
+            resizeMode="contain"
           />
 
-          {/* Main Content */}
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={true}
-            nestedScrollEnabled={true}
-          >
-            <Animated.View style={{ opacity: contentFade }}>
-              {/* Character Hero Section */}
-              <View style={styles.characterSection}>
-                <View style={styles.characterGlow} />
-                <View style={styles.characterContainer}>
-                  {getCharacterImage(characterIndex) && (
-                    <Image
-                      source={getCharacterImage(characterIndex)}
-                      style={styles.characterImage}
-                    />
-                  )}
-                </View>
-                <View style={styles.userInfoCard}>
-                  <Text style={styles.userName}>
-                    {userData?.fullName || "Adventurer"}
-                  </Text>
-                  <Text style={styles.userHandle}>
-                    @{userData?.username || "player"}
-                  </Text>
-                </View>
-              </View>
+          {/* Music and Burger Menu */}
+          <View style={styles.headerButtons}>
+            {/* Music Button */}
+            <TouchableOpacity
+              onPress={() => setMusicOn(!musicOn)}
+              style={[
+                styles.headerButton,
+                { backgroundColor: musicOn ? "#ffa75b" : "#94a3b8" },
+              ]}
+            >
+              <Text style={styles.headerButtonIcon}>
+                {musicOn ? "🔊" : "🔇"}
+              </Text>
+            </TouchableOpacity>
 
-              {/* Journey Header */}
-              <View style={styles.journeyHeader}>
-                <Text style={styles.journeyTitle}>⚔️ YOUR JOURNEY ⚔️</Text>
-                <Text style={styles.journeySubtitle}>
-                  Choose your next adventure
-                </Text>
-              </View>
-
-              {/* Level Cards */}
-              <View style={styles.levelsContainer}>
-                <AnimatedLevelCard
-                  level={1}
-                  isUnlocked={true}
-                  isCompleted={isLevelGroupCompleted(1)}
-                  completedStages={getCompletedStagesCount(1)}
-                  onPress={() => handleLevelPress(1)}
-                  delay={100}
-                />
-                <AnimatedLevelCard
-                  level={2}
-                  isUnlocked={isLevelGroupUnlocked(2)}
-                  isCompleted={isLevelGroupCompleted(2)}
-                  completedStages={getCompletedStagesCount(2)}
-                  onPress={() => handleLevelPress(2)}
-                  delay={200}
-                />
-                <AnimatedLevelCard
-                  level={3}
-                  isUnlocked={isLevelGroupUnlocked(3)}
-                  isCompleted={isLevelGroupCompleted(3)}
-                  completedStages={getCompletedStagesCount(3)}
-                  onPress={() => handleLevelPress(3)}
-                  delay={300}
-                />
-              </View>
-
-              {/* Stats Panel */}
-              <View style={styles.statsPanel}>
-                <Text style={styles.statsTitle}>📊 ADVENTURE STATS</Text>
-
-                <View style={styles.statsGrid}>
-                  <View style={styles.statBox}>
-                    <Text style={styles.statValue}>
-                      {completionPercentage}%
-                    </Text>
-                    <Text style={styles.statLabel}>Complete</Text>
-                  </View>
-                  <View style={styles.statBox}>
-                    <Text style={styles.statValue}>{userStats.accuracy}%</Text>
-                    <Text style={styles.statLabel}>Accuracy</Text>
-                  </View>
-                  <View style={styles.statBox}>
-                    <Text style={styles.statValue}>
-                      {userStats.totalAttempts}
-                    </Text>
-                    <Text style={styles.statLabel}>Attempts</Text>
-                  </View>
-                </View>
-
-                {/* Progress Bar */}
-                <View style={styles.progressSection}>
-                  <Text style={styles.progressLabel}>Quest Progress</Text>
-                  <View style={styles.progressBarOuter}>
-                    <View
-                      style={[
-                        styles.progressBarInner,
-                        { width: `${completionPercentage}%` },
-                      ]}
-                    />
-                    <Text style={styles.progressText}>
-                      {completionPercentage}%
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </Animated.View>
-          </ScrollView>
+            {/* Burger Menu */}
+            <TouchableOpacity
+              onPress={() => setMenuOpen(!menuOpen)}
+              style={[styles.headerButton, { backgroundColor: "#ffa75b" }]}
+            >
+              <Text style={styles.headerButtonIcon}>
+                {menuOpen ? "✕" : "☰"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </ImageBackground>
+
+        {/* Burger Menu Modal */}
+        <BurgerMenu
+          visible={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          onLogout={handleLogout}
+          onReset={handleReset}
+        />
+
+        {/* Main Content */}
+        <View style={styles.mainContent}>
+          {/* Character Section */}
+          <View style={styles.characterSection}>
+            <View style={styles.characterImageContainer}>
+              {getCharacterImage(characterIndex) && (
+                <Image
+                  source={getCharacterImage(characterIndex)}
+                  style={styles.characterImage}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+            <Text style={styles.playerName}>
+              {userData?.fullName || "Super Hero"}
+            </Text>
+          </View>
+
+          {/* Section Title */}
+          <Text style={styles.sectionTitle}>Pick Your Quest!</Text>
+
+          {/* Carousel */}
+          <View style={styles.carouselWrapper}>
+            <ScrollView
+              ref={scrollViewRef}
+              horizontal
+              pagingEnabled={false}
+              showsHorizontalScrollIndicator={false}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              snapToInterval={CARD_WIDTH + CARD_SPACING}
+              decelerationRate="fast"
+              contentContainerStyle={styles.scrollContent}
+            >
+              {levels.map((level, index) => {
+                const isActive = index === activeIndex;
+                const isSelected = selectedLevel === level.id;
+
+                return (
+                  <View
+                    key={level.id}
+                    style={[
+                      styles.cardContainer,
+                      {
+                        marginLeft: index === 0 ? (width - CARD_WIDTH) / 2 : 0,
+                      },
+                      {
+                        marginRight:
+                          index === levels.length - 1
+                            ? (width - CARD_WIDTH) / 2
+                            : CARD_SPACING,
+                      },
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={[
+                        styles.levelCard,
+                        isActive && styles.levelCardActive,
+                        isSelected && styles.levelCardSelected,
+                        !level.isUnlocked && styles.levelCardLocked,
+                      ]}
+                      onPress={() => handleCardPress(level, index)}
+                      activeOpacity={level.isUnlocked ? 0.8 : 1}
+                      disabled={!level.isUnlocked}
+                    >
+                      {/* Background Image */}
+                      {level.backgroundImage && (
+                        <Image
+                          source={level.backgroundImage}
+                          style={styles.cardBackgroundImage}
+                          resizeMode="cover"
+                        />
+                      )}
+
+                      {/* Lock Overlay */}
+                      {!level.isUnlocked && (
+                        <View style={styles.lockOverlay}>
+                          <Text style={styles.lockIcon}>🔒</Text>
+                          <Text style={styles.lockText}>Locked</Text>
+                        </View>
+                      )}
+
+                      {/* Card Content */}
+                      <View style={styles.cardContent}>
+                        <View style={styles.difficultyBadge}>
+                          <Text style={styles.difficultyText}>
+                            {level.difficulty}
+                          </Text>
+                        </View>
+
+                        <Text style={styles.cardTitle}>{level.title}</Text>
+
+                        {level.isCompleted && (
+                          <View style={styles.completedBadge}>
+                            <Text style={styles.completedText}>
+                              ✓ Completed
+                            </Text>
+                          </View>
+                        )}
+
+                        {/* Progress Indicator */}
+                        {level.isUnlocked && !level.isCompleted && (
+                          <View style={styles.progressIndicator}>
+                            <Text style={styles.progressText}>
+                              {level.completedStages}/
+                              {stagesPerLevel[level.levelGroup]} Stages
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* Dots Indicator */}
+          <View style={styles.dotsContainer}>
+            {levels.map((_, index) => (
+              <TouchableOpacity
+                key={index}
+                onPress={() => scrollToIndex(index)}
+                style={[styles.dot, index === activeIndex && styles.dotActive]}
+              />
+            ))}
+          </View>
+
+          {/* Stats Section - Single Row */}
+          <View style={styles.statsSection}>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{completionPercentage}%</Text>
+              <Text style={styles.statLabel}>Progress</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{userStats.accuracy}%</Text>
+              <Text style={styles.statLabel}>Accuracy</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{100 - userStats.accuracy}%</Text>
+              <Text style={styles.statLabel}>Mistakes</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{userStats.totalAttempts}</Text>
+              <Text style={styles.statLabel}>Attempts</Text>
+            </View>
+          </View>
+        </View>
+      </View>
     </View>
   );
 }
@@ -809,89 +628,111 @@ export default function LevelSelect({ navigation, route }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#87CEEB",
   },
-  background: {
+  gradientContainer: {
     flex: 1,
+    backgroundColor: "#c084fc",
+    position: "relative",
   },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(75, 0, 130, 0.3)",
+  backgroundImage: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
   },
-  mainWrapper: {
-    flex: 1,
+  backgroundElements: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 600,
+    pointerEvents: "none",
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#4B0082",
+  bubble: {
+    position: "absolute",
+    borderRadius: 999,
+    opacity: 0.6,
   },
-  loadingText: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#fff",
+  bubble1: {
+    top: 20,
+    left: 10,
+    width: 60,
+    height: 60,
+    backgroundColor: "#fde047",
+  },
+  bubble2: {
+    top: 100,
+    right: 20,
+    width: 50,
+    height: 50,
+    backgroundColor: "#f9a8d4",
+  },
+  bubble3: {
+    top: 200,
+    left: 30,
+    width: 70,
+    height: 70,
+    backgroundColor: "#93c5fd",
+  },
+  bubble4: {
+    top: 150,
+    right: 15,
+    width: 40,
+    height: 40,
+    backgroundColor: "#86efac",
+  },
+  cloud: {
+    position: "absolute",
+    fontSize: 36,
+    opacity: 0.8,
+  },
+  cloud1: {
+    top: 50,
+    left: "20%",
+  },
+  cloud2: {
+    top: 120,
+    right: "20%",
+    fontSize: 32,
+  },
+  cloud3: {
+    top: 30,
+    right: 30,
+    fontSize: 28,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop:
-      Platform.OS === "web"
-        ? 12
-        : StatusBar.currentHeight
-        ? StatusBar.currentHeight + 12
-        : 50,
-    paddingBottom: 12,
-    backgroundColor: "#ffa75c",
-    zIndex: 100,
+    padding: 16,
+    paddingTop: 20,
+    zIndex: 50,
   },
-  headerLeft: {
+  logoImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 14,
+  },
+  headerButtons: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+    gap: 8,
   },
-  menuButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+  headerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 6,
   },
-  menuIcon: {
-    fontSize: 24,
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  logo: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-  },
-  musicButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-    position: "relative",
-  },
-  musicButtonOff: {
-    opacity: 0.5,
-  },
-  musicIcon: {
-    fontSize: 24,
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  musicSlash: {
-    position: "absolute",
-    width: 32,
-    height: 2,
-    backgroundColor: "#fff",
-    transform: [{ rotate: "45deg" }],
+  headerButtonIcon: {
+    fontSize: 22,
   },
   menuOverlay: {
     flex: 1,
@@ -946,354 +787,211 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#333",
   },
-  scrollView: {
+  mainContent: {
     flex: 1,
-  },
-  scrollContent: {
-    paddingVertical: 24,
-    paddingBottom: 40,
+    paddingTop: 5,
+    justifyContent: "space-between",
   },
   characterSection: {
     alignItems: "center",
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+    marginBottom: 8,
   },
-  characterGlow: {
-    position: "absolute",
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: "#FFD700",
-    opacity: 0.5,
-    top: 24,
-  },
-  characterContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    padding: 12,
-    borderWidth: 4,
-    borderColor: "#ffa75c",
-    elevation: 8,
+  characterImageContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#ffa75b",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 5,
+    borderColor: "#ffffff",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowRadius: 10,
+    elevation: 10,
+    marginBottom: 10,
   },
   characterImage: {
-    width: 128,
-    height: 176,
-    resizeMode: "contain",
+    width: 110,
+    height: 110,
   },
-  userInfoCard: {
-    marginTop: 16,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderWidth: 3,
-    borderColor: "#ffa75c",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-  },
-  userName: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
-    textAlign: "center",
-  },
-  userHandle: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#666",
-    textAlign: "center",
-  },
-  journeyHeader: {
-    alignItems: "center",
-    marginBottom: 24,
-    paddingHorizontal: 16,
-  },
-  journeyTitle: {
+  playerName: {
     fontSize: 24,
-    fontWeight: "bold",
-    color: "#fff",
-    letterSpacing: 2,
-    textShadowColor: "rgba(0, 0, 0, 0.5)",
+    fontWeight: "900",
+    color: "#ffffff",
+    textShadowColor: "rgba(0,0,0,0.3)",
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 4,
-    marginBottom: 8,
   },
-  journeySubtitle: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#fff",
-    opacity: 0.95,
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#ffffff",
+    textAlign: "center",
+    marginBottom: 12,
+    textShadowColor: "rgba(0,0,0,0.3)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
   },
-  levelsContainer: {
-    paddingHorizontal: 16,
+  carouselWrapper: {
+    height: height * 0.28,
+    marginBottom: 10,
+  },
+  scrollContent: {
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  cardContainer: {
+    width: CARD_WIDTH,
   },
   levelCard: {
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 20,
-    borderWidth: 4,
-    elevation: 8,
+    width: CARD_WIDTH,
+    height: "100%",
+    backgroundColor: "rgba(255, 255, 255, 0.98)",
+    borderRadius: 20,
+    borderWidth: 3,
+    borderColor: "#ffffff",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    position: "relative",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 10,
+    opacity: 1,
     overflow: "hidden",
+  },
+  levelCardActive: {
+    borderColor: "#ffa75b",
+  },
+  levelCardSelected: {
+    borderColor: "#ffa75b",
+    borderWidth: 4,
   },
   levelCardLocked: {
-    backgroundColor: "rgba(180, 180, 180, 0.85)",
-    opacity: 0.6,
+    backgroundColor: "rgba(150, 150, 150, 0.5)",
   },
-  lockOverlayCard: {
+  cardBackgroundImage: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 10,
-    borderRadius: 24,
+    width: "100%",
+    height: "100%",
+    opacity: 0.3,
   },
-  lockIconLarge: {
-    width: 60,
-    height: 60,
-    marginBottom: 12,
-    tintColor: "#fff",
+  lockOverlay: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+  lockIcon: {
+    fontSize: 50,
+    marginBottom: 8,
   },
   lockText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#fff",
-    textShadowColor: "rgba(0, 0, 0, 0.5)",
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 3,
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#ffffff",
   },
-  completedGlow: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    opacity: 0.1,
-  },
-  levelCardTop: {
-    flexDirection: "row",
+  cardContent: {
+    flex: 1,
+    padding: 20,
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
   },
-  levelBadge: {
+  difficultyBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#ffa75b",
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: "#fff",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    paddingVertical: 6,
+    borderRadius: 15,
   },
-  levelBadgeText: {
+  difficultyText: {
+    color: "#ffffff",
     fontSize: 14,
-    fontWeight: "bold",
-    color: "#fff",
-    letterSpacing: 1.5,
+    fontWeight: "900",
   },
-  starContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFD700",
-    borderWidth: 3,
-    borderColor: "#fff",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  starIcon: {
-    fontSize: 20,
-  },
-  levelIconSection: {
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  levelIconCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 4,
-    elevation: 8,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  levelIconImage: {
-    width: 64,
-    height: 64,
-    resizeMode: "contain",
-  },
-  levelCardBottom: {
-    alignItems: "center",
-    minHeight: 80,
-    justifyContent: "center",
-  },
-  levelIconEmoji: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  levelNameText: {
-    fontSize: 16,
-    fontWeight: "bold",
+  cardTitle: {
+    fontSize: 22,
+    fontWeight: "900",
     color: "#333",
     textAlign: "center",
-    letterSpacing: 0.5,
-    marginBottom: 12,
   },
-  progressDots: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 8,
+  completedBadge: {
+    alignSelf: "center",
+    backgroundColor: "#4ade80",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 15,
   },
-  progressDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-  },
-  stagesCompletedText: {
+  completedText: {
+    color: "#ffffff",
     fontSize: 14,
-    fontWeight: "bold",
-    color: "#666",
+    fontWeight: "900",
   },
-  lockedPlaceholder: {
-    fontSize: 48,
-    fontWeight: "bold",
-    color: "#bbb",
-    letterSpacing: 8,
-  },
-  actionButton: {
-    width: "100%",
-    marginTop: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
-    borderWidth: 3,
-    borderColor: "#fff",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    alignItems: "center",
-  },
-  actionButtonText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#fff",
-    letterSpacing: 1.5,
-  },
-  statsPanel: {
-    marginHorizontal: 16,
-    marginTop: 24,
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    padding: 24,
-    borderWidth: 4,
-    borderColor: "#ffa75c",
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  statsTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
-    textAlign: "center",
-    marginBottom: 20,
-    letterSpacing: 1.5,
-  },
-  statsGrid: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 24,
-  },
-  statBox: {
-    backgroundColor: "#f8f8f8",
-    borderRadius: 16,
-    padding: 16,
-    alignItems: "center",
-    borderWidth: 3,
-    borderColor: "#e0e0e0",
-    minWidth: width * 0.25,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-  },
-  statValue: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#ffa75c",
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#666",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  progressSection: {
-    marginTop: 8,
-  },
-  progressLabel: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 12,
-  },
-  progressBarOuter: {
-    height: 24,
-    backgroundColor: "#e0e0e0",
-    borderRadius: 12,
-    overflow: "hidden",
-    position: "relative",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  progressBarInner: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    height: "100%",
-    backgroundColor: "#ffa75c",
+  progressIndicator: {
+    alignSelf: "center",
+    backgroundColor: "#64b5f6",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 12,
   },
   progressText: {
+    color: "#ffffff",
     fontSize: 12,
-    fontWeight: "bold",
-    color: "#333",
-    zIndex: 10,
+    fontWeight: "700",
+  },
+  dotsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginVertical: 10,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.4)",
+  },
+  dotActive: {
+    width: 24,
+    backgroundColor: "#ffffff",
+  },
+  statsSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    borderRadius: 20,
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderWidth: 3,
+    borderColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  statItem: {
+    alignItems: "center",
+    flex: 1,
+  },
+  statDivider: {
+    width: 2,
+    height: 30,
+    backgroundColor: "#e0e0e0",
+  },
+  statNumber: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#ffa75b",
+    marginBottom: 2,
+  },
+  statLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#666",
   },
 });
