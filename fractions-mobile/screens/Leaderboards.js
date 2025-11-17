@@ -74,56 +74,138 @@ export default function Leaderboard({ navigation }) {
   const loadLeaderboard = async () => {
     try {
       setLoading(true);
-      // Fetch all students with their progress
-      const { data, error } = await supabase
-        .from("student_progress")
-        .select("*")
-        .order("total_score", { ascending: false });
+      
+      // First, get all students
+      const { data: studentsData, error: studentsError } = await supabase
+        .from("students")
+        .select(`
+          id,
+          user_id,
+          name,
+          username,
+          email,
+          character_index,
+          sections(name)
+        `);
 
-      if (error) throw error;
+      if (studentsError) throw studentsError;
 
-      // Calculate rankings and format data
-      const formattedStudents = data.map((student, index) => ({
+      // Then, get all quiz attempts
+      const { data: attemptsData, error: attemptsError } = await supabase
+        .from("quiz_attempts")
+        .select("*");
+
+      if (attemptsError) throw attemptsError;
+
+      // Calculate stats for each student
+      const formattedStudents = studentsData.map((student) => {
+        // Filter attempts for this student
+        const studentAttempts = attemptsData.filter(
+          (attempt) => attempt.user_id === student.user_id
+        );
+
+        // Calculate statistics
+        const totalAttempts = studentAttempts.length;
+        const correctAttempts = studentAttempts.filter(
+          (a) => a.is_correct
+        ).length;
+        const totalScore = studentAttempts.reduce((sum, attempt) => {
+          // Award points: correct = 100, wrong = 0, bonus for time
+          if (attempt.is_correct) {
+            const timeBonus = Math.floor((attempt.time_remaining || 0) / 10);
+            return sum + 100 + timeBonus;
+          }
+          return sum;
+        }, 0);
+
+        // Calculate levels completed
+        const completedLevels = new Set();
+        const completedStages = new Set();
+        studentAttempts.forEach((attempt) => {
+          if (attempt.is_correct) {
+            completedLevels.add(attempt.level_group);
+            completedStages.add(`${attempt.level_group}-${attempt.stage}`);
+          }
+        });
+
+        // Determine current level (highest unlocked level)
+        const maxLevel = completedLevels.size > 0 ? Math.max(...completedLevels) : 1;
+        const currentLevel = maxLevel < 3 ? maxLevel + 1 : 3;
+
+        // Calculate progress percentage
+        const totalPossibleStages = 3 * 2; // 3 levels × 2 stages
+        const progress = Math.round(
+          (completedStages.size / totalPossibleStages) * 100
+        );
+
+        return {
+          id: student.id,
+          user_id: student.user_id,
+          full_name: student.name,
+          username: student.username,
+          email: student.email,
+          selected_character: student.character_index || 0,
+          section_name: student.sections?.name || "No Section",
+          total_score: totalScore,
+          total_attempts: totalAttempts,
+          correct_attempts: correctAttempts,
+          current_level: currentLevel,
+          completed_levels: completedLevels.size,
+          totalStages: completedStages.size,
+          progress,
+          level_1: {
+            unlocked: true,
+            completed_stages: studentAttempts.filter(
+              (a) => a.level_group === 1 && a.is_correct
+            ).length,
+          },
+          level_2: {
+            unlocked: completedStages.size >= 2,
+            completed_stages: studentAttempts.filter(
+              (a) => a.level_group === 2 && a.is_correct
+            ).length,
+          },
+          level_3: {
+            unlocked: completedStages.size >= 4,
+            completed_stages: studentAttempts.filter(
+              (a) => a.level_group === 3 && a.is_correct
+            ).length,
+          },
+        };
+      });
+
+      // Sort by total_score (descending), then by totalStages, then by correct_attempts
+      formattedStudents.sort((a, b) => {
+        if (b.total_score !== a.total_score) {
+          return b.total_score - a.total_score;
+        }
+        if (b.totalStages !== a.totalStages) {
+          return b.totalStages - a.totalStages;
+        }
+        return b.correct_attempts - a.correct_attempts;
+      });
+
+      // Assign ranks
+      const rankedStudents = formattedStudents.map((student, index) => ({
         ...student,
         rank: index + 1,
-        progress: calculateProgress(student),
-        totalStages: calculateTotalStages(student),
       }));
 
-      setStudents(formattedStudents);
+      setStudents(rankedStudents);
     } catch (error) {
       console.error("Error loading leaderboard:", error);
+      alert(`Failed to load leaderboard: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
   const calculateProgress = (student) => {
-    // Calculate overall progress percentage
-    const maxLevels = 3;
-    const maxStages = 2;
-    const totalPossible = maxLevels * maxStages;
-
-    let completed = 0;
-    for (let level = 1; level <= maxLevels; level++) {
-      const levelData = student[`level_${level}`];
-      if (levelData) {
-        completed += levelData.completed_stages || 0;
-      }
-    }
-
-    return Math.round((completed / totalPossible) * 100);
+    return student.progress || 0;
   };
 
   const calculateTotalStages = (student) => {
-    let total = 0;
-    for (let level = 1; level <= 3; level++) {
-      const levelData = student[`level_${level}`];
-      if (levelData) {
-        total += levelData.completed_stages || 0;
-      }
-    }
-    return total;
+    return student.totalStages || 0;
   };
 
   const handleStudentPress = (student) => {
