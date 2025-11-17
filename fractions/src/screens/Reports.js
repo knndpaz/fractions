@@ -30,17 +30,16 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      // Load sections owned by this teacher
-      let sq = supabase
+      // Load ALL sections (not filtered by teacher)
+      const { data: sectionsData, error: sectionsError } = await supabase
         .from("sections")
         .select("*")
         .order("created_at", { ascending: true });
-      if (currentUser?.id) sq = sq.eq("created_by", currentUser.id);
-      const { data: sectionsData, error: sectionsError } = await sq;
+      
       if (sectionsError) throw sectionsError;
       setSections(sectionsData || []);
 
-      // Load users who belong to these sections (by name) with nested progress
+      // Load ALL users with nested progress
       const sectionNames = (sectionsData || []).map((s) => s.name);
       let usersData = [];
       if (sectionNames.length > 0) {

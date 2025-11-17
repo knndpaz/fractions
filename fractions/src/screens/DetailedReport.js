@@ -32,7 +32,7 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
 
     const fetchData = async () => {
       try {
-        // Users in this section with nested progress
+        // Get ALL users in this section (not filtered by teacher)
         const { data: usersData } = await supabase
           .from("users")
           .select(`
@@ -69,7 +69,7 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
     };
 
     fetchData();
-  }, [section?.id, section?.name, currentUser?.id]);
+  }, [section?.id, section?.name]); // Removed currentUser?.id dependency
 
   // Summarize one student across level groups (for cards and tables)
   const summarizeProgress = (st) => {

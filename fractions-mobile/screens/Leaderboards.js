@@ -75,7 +75,7 @@ export default function Leaderboard({ navigation }) {
     try {
       setLoading(true);
       
-      // First, get all students
+      // First, get ALL students (no teacher filtering)
       const { data: studentsData, error: studentsError } = await supabase
         .from("students")
         .select(`
@@ -90,7 +90,7 @@ export default function Leaderboard({ navigation }) {
 
       if (studentsError) throw studentsError;
 
-      // Then, get all quiz attempts
+      // Then, get ALL quiz attempts
       const { data: attemptsData, error: attemptsError } = await supabase
         .from("quiz_attempts")
         .select("*");

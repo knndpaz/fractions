@@ -65,12 +65,14 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
     loadStudents();
   }, [currentUser?.id]);
 
-  // Load sections from Supabase (scoped to teacher)
+  // Load sections from Supabase (ALL sections, not scoped to teacher)
   const loadSections = async () => {
     try {
-      let q = supabase.from("sections").select("*").order("created_at", { ascending: true });
-      if (currentUser?.id) q = q.eq("created_by", currentUser.id);
-      const { data, error } = await q;
+      const { data, error } = await supabase
+        .from("sections")
+        .select("*")
+        .order("created_at", { ascending: true });
+      
       if (error) {
         console.error("Error loading sections:", error);
       } else {
@@ -81,18 +83,17 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
     }
   };
 
-  // Load students scoped to teacher’s sections (inner join)
+  // Load ALL students (not scoped to teacher)
   const loadStudents = async () => {
     try {
-      let q = supabase
+      const { data, error } = await supabase
         .from("students")
         .select(`
           *,
-          sections!inner(id, name, created_by)
+          sections(id, name, created_by)
         `)
         .order("created_at", { ascending: true });
-      if (currentUser?.id) q = q.eq("sections.created_by", currentUser.id);
-      const { data, error } = await q;
+      
       if (error) {
         console.error("Error loading students:", error);
       } else {
