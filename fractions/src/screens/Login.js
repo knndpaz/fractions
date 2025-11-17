@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Eye, EyeOff, User, Lock, LogIn } from "lucide-react";
 import { supabase } from "../supabase";
+const logo = process.env.PUBLIC_URL + "/logo.png";
 
 export default function AdminLogin({ onLoggedIn }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -75,11 +76,15 @@ export default function AdminLogin({ onLoggedIn }) {
       {/* Login Card */}
       <div className="relative w-full max-w-md">
         {/* Floating quiz elements */}
-        <div className="absolute -top-8 -left-8 bg-white rounded-2xl shadow-2xl p-4 transform rotate-12 hover:rotate-0 transition-transform duration-300">
-          <div className="text-4xl">🎯</div>
+        <div className="absolute -top-20 -left-20 bg-white rounded-2xl shadow-2xl p-4 transform rotate-12 hover:rotate-0 transition-transform duration-300">
+          <div className="text-4xl">
+            <img src={logo} alt="Logo" className="h-12 w-12 sm:h-16 sm:w-16" />
+          </div>
         </div>
-        <div className="absolute -top-6 -right-6 bg-white rounded-2xl shadow-2xl p-4 transform -rotate-12 hover:rotate-0 transition-transform duration-300">
-          <div className="text-4xl">🎮</div>
+        <div className="absolute -top-20 -right-20 bg-white rounded-2xl shadow-2xl p-4 transform -rotate-12 hover:rotate-0 transition-transform duration-300">
+          <div className="text-4xl">
+            <img src={logo} alt="Logo" className="h-12 w-12 sm:h-16 sm:w-16" />
+          </div>
         </div>
 
         <div className="bg-white rounded-3xl shadow-2xl overflow-hidden transform hover:scale-105 transition-transform duration-300">
@@ -88,13 +93,20 @@ export default function AdminLogin({ onLoggedIn }) {
             <div className="absolute inset-0 bg-black opacity-0 hover:opacity-5 transition-opacity duration-300"></div>
             <div className="relative">
               <div className="inline-block bg-white rounded-2xl p-4 mb-4 shadow-lg transform hover:rotate-6 transition-transform duration-300">
-                <div className="text-6xl">🎲</div>
+                <div className="text-6xl">
+                  <img
+                    src={logo}
+                    alt="Logo"
+                    className="h-12 w-12 sm:h-16 sm:w-16"
+                  />
+                </div>
               </div>
               <h1 className="text-3xl font-bold text-white mb-2">
                 Admin Portal
               </h1>
+              <p className="text-orange-100 text-sm">Games of Fractions</p>
               <p className="text-orange-100 text-sm">
-                Quiz Game Management System
+                PLease login your account
               </p>
             </div>
           </div>
@@ -104,7 +116,7 @@ export default function AdminLogin({ onLoggedIn }) {
             {/* Username Input */}
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-gray-700">
-                Username
+                Email Address
               </label>
               <div
                 className={`relative transform transition-all duration-300 ${
@@ -169,12 +181,6 @@ export default function AdminLogin({ onLoggedIn }) {
                   Remember me
                 </span>
               </label>
-              <button
-                type="button"
-                className="text-orange-500 hover:text-orange-600 font-semibold transition-colors duration-200"
-              >
-                Forgot password?
-              </button>
             </div>
 
             {/* Submit Button */}
@@ -196,19 +202,6 @@ export default function AdminLogin({ onLoggedIn }) {
                 </>
               )}
             </button>
-
-            {/* Additional Info */}
-            <div className="text-center pt-4">
-              <p className="text-sm text-gray-500">
-                Need help?{" "}
-                <button
-                  type="button"
-                  className="text-orange-500 hover:text-orange-600 font-semibold"
-                >
-                  Contact Support
-                </button>
-              </p>
-            </div>
           </div>
         </div>
 
@@ -226,7 +219,7 @@ export default function AdminLogin({ onLoggedIn }) {
             ></div>
           </div>
           <p className="text-white text-sm font-semibold">
-            Powered by Quiz Pro
+            Powered by Kenn Depaz
           </p>
         </div>
       </div>
