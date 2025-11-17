@@ -367,25 +367,69 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         return;
       }
 
-      // Insert student record WITHOUT creating auth account to avoid session conflict
-      // Store password temporarily - you'll need a backend service to create auth accounts
+      // Create auth user using regular signUp (not admin API)
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: mail,
+        password: pwd,
+        options: {
+          data: {
+            username: uname,
+            full_name: name,
+            user_type: 'student',
+            section_id: section.id,
+            created_by: currentUser?.id,
+          },
+          emailRedirectTo: undefined, // Prevent confirmation email
+        }
+      });
+
+      if (authError) {
+        alert("Error creating auth account: " + authError.message);
+        setLoading(false);
+        return;
+      }
+
+      // Wait a moment for the trigger to process
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Insert student record with user_id
       const { data: studentRow, error: studentError } = await supabase
         .from("students")
         .insert([
           {
+            user_id: authData.user.id,
             name,
             username: uname,
             email: mail,
             section_id: section.id,
-            // Note: password is not stored in database for security
-            // You'll need to implement a backend service to create auth accounts
+            created_by: currentUser?.id,
           }
         ])
         .select(`*, sections(name)`)
         .single();
 
       if (studentError) {
-        alert("Error saving student record: " + studentError.message);
+        console.error("Student record error:", studentError);
+        // Try to fetch if already exists (created by trigger)
+        const { data: existingStudent } = await supabase
+          .from("students")
+          .select(`*, sections(name)`)
+          .eq("user_id", authData.user.id)
+          .single();
+        
+        if (existingStudent) {
+          setStudents((prev) => [...prev, existingStudent]);
+          await loadStudents();
+          setStudentName("");
+          setStudentUsername("");
+          setStudentEmail("");
+          setStudentPassword("");
+          setStudentSection("");
+          setShowPassword(false);
+          showNotification(`Student "${name}" created successfully!`);
+        } else {
+          alert("Error saving student record: " + studentError.message);
+        }
       } else {
         setStudents((prev) => [...prev, studentRow]);
         await loadStudents();
@@ -395,9 +439,10 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         setStudentPassword("");
         setStudentSection("");
         setShowPassword(false);
-        showNotification(`Student "${name}" created successfully! (Auth account creation pending)`);
+        showNotification(`Student "${name}" created successfully!`);
       }
     } catch (error) {
+      console.error("Error creating student:", error);
       alert("Error creating student: " + error.message);
     } finally {
       setLoading(false);
@@ -438,15 +483,41 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           const section = await findOrCreateSection(s.section);
           if (!section) continue;
 
-          // Insert student record WITHOUT creating auth account
+          // Create auth user using regular signUp
+          const { data: authData, error: authError } = await supabase.auth.signUp({
+            email: s.email,
+            password: s.password,
+            options: {
+              data: {
+                username: s.username,
+                full_name: s.name,
+                user_type: 'student',
+                section_id: section.id,
+                created_by: currentUser?.id,
+              },
+              emailRedirectTo: undefined,
+            }
+          });
+
+          if (authError) {
+            console.error("Auth error for", s.email, ":", authError);
+            continue;
+          }
+
+          // Wait for trigger
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Insert student record with user_id
           const { data: studentRow, error: studentError } = await supabase
             .from("students")
             .insert([
               {
+                user_id: authData.user.id,
                 name: s.name,
                 username: s.username,
                 email: s.email,
                 section_id: section.id,
+                created_by: currentUser?.id,
               }
             ])
             .select("*, sections(name)")
@@ -455,8 +526,21 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           if (!studentError && studentRow) {
             successCount++;
             created.push(studentRow);
+          } else {
+            // Try to fetch if already exists
+            const { data: existingStudent } = await supabase
+              .from("students")
+              .select(`*, sections(name)`)
+              .eq("user_id", authData.user.id)
+              .single();
+            
+            if (existingStudent) {
+              successCount++;
+              created.push(existingStudent);
+            }
           }
-        } catch {
+        } catch (err) {
+          console.error("Error creating student:", err);
           // skip on error and continue with next
         }
       }
@@ -474,9 +558,10 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
       setSameSection(false);
 
       showNotification(
-        `Saved ${successCount} student(s). ${skippedDuplicates > 0 ? skippedDuplicates + " skipped (duplicates). " : ""}Auth accounts will be created via admin process.`
+        `Successfully created ${successCount} student(s).${skippedDuplicates > 0 ? ` ${skippedDuplicates} skipped (duplicates).` : ""}`
       );
     } catch (error) {
+      console.error("Error creating students:", error);
       alert("Error creating students: " + error.message);
     } finally {
       setLoading(false);
