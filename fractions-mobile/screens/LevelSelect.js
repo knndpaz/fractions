@@ -37,7 +37,7 @@ const stagesPerLevel = {
 };
 
 // Burger Menu Component (converted to React Native)
-const BurgerMenu = ({ visible, onClose, onLogout, onReset }) => {
+const BurgerMenu = ({ visible, onClose, onLogout, onReset, onLeaderboards }) => {
   const slideAnim = useRef(new Animated.Value(-300)).current;
 
   useEffect(() => {
@@ -77,8 +77,13 @@ const BurgerMenu = ({ visible, onClose, onLogout, onReset }) => {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.menuItem} onPress={onReset}>
+          <TouchableOpacity style={styles.menuItem} onPress={onLeaderboards}>
             <Text style={styles.menuItemIcon}>🏆</Text>
+            <Text style={styles.menuItemText}>Leaderboards</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem} onPress={onReset}>
+            <Text style={styles.menuItemIcon}>🔄</Text>
             <Text style={styles.menuItemText}>Reset Progress</Text>
           </TouchableOpacity>
 
@@ -355,7 +360,12 @@ export default function LevelSelect({ navigation, route }) {
     level2: [],
     level3: [],
   });
-  const [userStats, setUserStats] = useState({ accuracy: 0, totalAttempts: 0 });
+  const [userStats, setUserStats] = useState({ 
+    accuracy: 0, 
+    totalAttempts: 0,
+    correctAnswers: 0,
+    wrongAnswers: 0 
+  });
   const [completionPercentage, setCompletionPercentage] = useState(0);
   const [completedLevels, setCompletedLevels] = useState({
     1: false,
@@ -469,13 +479,21 @@ export default function LevelSelect({ navigation, route }) {
       const stats = await LevelProgress.getUserStats();
       const completion = await LevelProgress.getCompletionPercentage();
 
+      // Debug logging
+      console.log("Loaded progress:", progress);
+      console.log("Level 1 progress:", progress.level1);
+      console.log("Level 2 progress:", progress.level2);
+      console.log("Level 3 progress:", progress.level3);
+      console.log("User stats:", stats.overall);
+      console.log("Completion percentage:", completion);
+
       setAllProgress(progress);
       setUserStats(stats.overall);
       setCompletionPercentage(completion);
       setCompletedLevels({
-        1: progress.level1.includes(stagesPerLevel[1]),
-        2: progress.level2.includes(stagesPerLevel[2]),
-        3: progress.level3.includes(stagesPerLevel[3]),
+        1: progress.level1.includes(3), // Changed to check for stage 3
+        2: progress.level2.includes(3), // Changed to check for stage 3
+        3: progress.level3.includes(3), // Changed to check for stage 3
       });
       setIsLoading(false);
 
@@ -544,10 +562,21 @@ export default function LevelSelect({ navigation, route }) {
     );
   };
 
+  const handleLeaderboards = () => {
+    setMenuOpen(false);
+    if (navigation) {
+      navigation.navigate("Leaderboard");
+    }
+  };
+
   const handleLevelPress = (levelGroup) => {
     console.log("Attempting to navigate to level group:", levelGroup);
     if (isLevelGroupUnlocked(levelGroup)) {
       console.log("Level group unlocked, navigating...");
+
+      // Check if the level is already completed
+      const isCompleted = isLevelGroupCompleted(levelGroup);
+
       const levelDialogues = {
         1: {
           dialogueText:
@@ -567,12 +596,21 @@ export default function LevelSelect({ navigation, route }) {
       };
 
       if (navigation) {
-        navigation.navigate("Dialogue", {
-          selectedCharacter: characterIndex,
-          ...levelDialogues[levelGroup],
-          nextScreen: "MapLevels",
-          nextScreenParams: { levelGroup, selectedCharacter: characterIndex },
-        });
+        // If level is completed, skip dialogue and go directly to MapLevels
+        if (isCompleted) {
+          navigation.navigate("MapLevels", {
+            levelGroup,
+            selectedCharacter: characterIndex,
+          });
+        } else {
+          // If level is not completed, show dialogue first
+          navigation.navigate("Dialogue", {
+            selectedCharacter: characterIndex,
+            ...levelDialogues[levelGroup],
+            nextScreen: "MapLevels",
+            nextScreenParams: { levelGroup, selectedCharacter: characterIndex },
+          });
+        }
       } else {
         Alert.alert(
           "Level " + levelGroup,
@@ -596,14 +634,35 @@ export default function LevelSelect({ navigation, route }) {
 
   const isLevelGroupCompleted = (levelGroup) => {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
-    return levelProgress.includes(stagesPerLevel[levelGroup]);
+    // A level group is completed when stage 3 is unlocked (meaning both stages 1 and 2 are done)
+    // stagesPerLevel[levelGroup] is 2, but we need to check for stage 3 being unlocked
+    return levelProgress.includes(stagesPerLevel[levelGroup] + 1);
   };
 
   const getCompletedStagesCount = (levelGroup) => {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
+    const totalStages = stagesPerLevel[levelGroup]; // Always 2
+
     if (levelProgress.length === 0) return 0;
-    const maxUnlockedStage = Math.max(...levelProgress);
-    return Math.max(0, maxUnlockedStage - 1);
+
+    // Logic: If stage N+1 is unlocked, it means stage N was completed
+    // Stage 1 is always initially unlocked: [1]
+    // After completing stage 1: [1, 2] -> 1 stage completed
+    // After completing stage 2: [1, 2, 3] -> 2 stages completed
+
+    let completedCount = 0;
+
+    // Check if stage 2 is unlocked (means stage 1 completed)
+    if (levelProgress.includes(2)) {
+      completedCount = 1;
+    }
+
+    // Check if stage 3 is unlocked (means stage 2 completed)
+    if (levelProgress.includes(3)) {
+      completedCount = 2;
+    }
+
+    return completedCount;
   };
 
   const getUnlockedLevelsCount = () => {
@@ -691,6 +750,7 @@ export default function LevelSelect({ navigation, route }) {
             onClose={() => setMenuOpen(false)}
             onLogout={handleLogout}
             onReset={handleReset}
+            onLeaderboards={handleLeaderboards}
           />
 
           {/* Main Content */}

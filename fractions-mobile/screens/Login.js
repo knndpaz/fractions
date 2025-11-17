@@ -277,8 +277,10 @@ export default function Login({ navigation }) {
         startBackgroundMusic();
 
         setTimeout(() => {
+          // If character_index exists, go directly to LevelSelect
+          // Otherwise, go to CharacterSelect (which will then show dialogue)
           if (characterIdx !== null && characterIdx !== undefined && characterIdx !== "") {
-            navigation.replace("Dialogue", { selectedCharacter: Number(characterIdx) });
+            navigation.replace("LevelSelect", { selectedCharacter: Number(characterIdx) });
           } else {
             navigation.replace("CharacterSelect");
           }

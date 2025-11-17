@@ -10,6 +10,7 @@ import {
   Dimensions,
   Animated,
   Platform,
+  Modal,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useMusic } from "../App";
@@ -23,11 +24,65 @@ const verticalScale = (size) => (height / 812) * size;
 const moderateScale = (size, factor = 0.5) =>
   size + (scale(size) - size) * factor;
 
+const BurgerMenu = ({ visible, onClose, onNavigateToLevelSelect }) => {
+  const slideAnim = useRef(new Animated.Value(-300)).current;
+
+  useEffect(() => {
+    Animated.timing(slideAnim, {
+      toValue: visible ? 0 : -300,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+      animationType="none"
+    >
+      {/* Overlay */}
+      <TouchableOpacity
+        style={styles.menuOverlay}
+        activeOpacity={1}
+        onPress={onClose}
+      >
+        <Animated.View
+          style={[
+            styles.menuContainer,
+            { transform: [{ translateX: slideAnim }] },
+          ]}
+          onStartShouldSetResponder={() => true}
+        >
+          <View style={styles.menuHeader}>
+            <Text style={styles.menuTitle}>MENU</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={onNavigateToLevelSelect}
+          >
+            <Text style={styles.menuItemIcon}>🏠</Text>
+            <Text style={styles.menuItemText}>Go Back to Level Select</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </TouchableOpacity>
+    </Modal>
+  );
+};
+
 export default function MapLevels({ navigation, route }) {
   const { switchToBackgroundMusic } = useMusic();
   const levelGroup = Number(route?.params?.levelGroup || 1);
   const selectedCharacter = route?.params?.selectedCharacter || 0;
   const [unlockedLevels, setUnlockedLevels] = useState([1]);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Animation refs
   const bounceAnims = useRef([1, 2].map(() => new Animated.Value(0))).current;
@@ -230,6 +285,13 @@ export default function MapLevels({ navigation, route }) {
     outputRange: ["0deg", "360deg"],
   });
 
+  const handleNavigateToLevelSelect = () => {
+    setMenuOpen(false);
+    navigation.navigate("LevelSelect", {
+      selectedCharacter: selectedCharacter,
+    });
+  };
+
   return (
     <View style={styles.container}>
       <ImageBackground
@@ -268,10 +330,10 @@ export default function MapLevels({ navigation, route }) {
           <Text style={styles.sparkleText}>💫</Text>
         </Animated.View>
 
-        {/* Back Button */}
+        {/* Back/Menu Button */}
         <TouchableOpacity
           style={styles.menuBtn}
-          onPress={() => navigation.goBack()}
+          onPress={() => setMenuOpen(true)}
           activeOpacity={0.8}
         >
           <Image
@@ -279,6 +341,13 @@ export default function MapLevels({ navigation, route }) {
             style={styles.menuIcon}
           />
         </TouchableOpacity>
+
+        {/* Burger Menu */}
+        <BurgerMenu
+          visible={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          onNavigateToLevelSelect={handleNavigateToLevelSelect}
+        />
 
         {/* Reset Button (for testing) */}
         <TouchableOpacity
@@ -659,5 +728,58 @@ const styles = StyleSheet.create({
   },
   sparkleText: {
     fontSize: moderateScale(32),
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+  },
+  menuContainer: {
+    width: 280,
+    height: "100%",
+    backgroundColor: "#fff",
+  },
+  menuHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 20,
+    borderBottomWidth: 2,
+    borderBottomColor: "#f0f0f0",
+  },
+  menuTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#333",
+    letterSpacing: 2,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#f0f0f0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeButtonText: {
+    fontSize: 24,
+    color: "#666",
+    fontWeight: "bold",
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  menuItemIcon: {
+    fontSize: 28,
+    marginRight: 16,
+  },
+  menuItemText: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#333",
   },
 });

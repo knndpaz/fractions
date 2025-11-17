@@ -108,28 +108,53 @@ export const LevelProgress = {
     // Only Level 1 should auto-unlock stage 1
     const ensuredLocal =
       lg === 1
-        ? uniqSorted((localArr.includes(1) ? localArr : [1, ...localArr]).map(clampStage))
-        : uniqSorted(localArr.map(clampStage)); // do NOT force stage 1 for level 2/3
+        ? uniqSorted((localArr.includes(1) ? localArr : [1, ...localArr]))
+        : uniqSorted(localArr); // do NOT force stage 1 for level 2/3
 
     // Fresh reset short-circuit:
     // - Level 1: [1] only
     if (lg === 1 && ensuredLocal.length === 1 && ensuredLocal[0] === 1) {
-      if (JSON.stringify(localArr) !== JSON.stringify([1])) {
-        const next = { ...all, [`level${lg}`]: [1] };
-        await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(next));
+      // Check DB first before assuming it's fresh
+      try {
+        const { data } = await supabase.auth.getUser();
+        const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
+        if (userId && DatabaseService?.getStudentProgress) {
+          const rows = await DatabaseService.getStudentProgress(userId);
+          const row = Array.isArray(rows) ? rows.find(r => Number(r.level_group) === lg) : null;
+          if (row && Number(row.completed_stages) > 0) {
+            // Not fresh - has DB progress
+          } else {
+            return [1];
+          }
+        } else {
+          return [1];
+        }
+      } catch {
+        return [1];
       }
-      return [1];
     }
-    // - Level 2/3: empty means locked
+    // - Level 2/3: empty means locked (unless DB says otherwise)
     if (lg !== 1 && ensuredLocal.length === 0) {
-      if (JSON.stringify(localArr) !== JSON.stringify([])) {
-        const next = { ...all, [`level${lg}`]: [] };
-        await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(next));
+      // Check DB before assuming locked
+      try {
+        const { data } = await supabase.auth.getUser();
+        const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
+        if (userId && DatabaseService?.getStudentProgress) {
+          const rows = await DatabaseService.getStudentProgress(userId);
+          const row = Array.isArray(rows) ? rows.find(r => Number(r.level_group) === lg) : null;
+          if (!row || Number(row.current_stage) <= 1) {
+            return [];
+          }
+          // Has DB progress, continue to merge
+        } else {
+          return [];
+        }
+      } catch {
+        return [];
       }
-      return [];
     }
 
-    // Merge DB-driven info (current_stage/completed_stages) when not a fresh reset state
+    // Merge DB-driven info (current_stage/completed_stages)
     const unlocked = new Set(ensuredLocal);
     try {
       const { data } = await supabase.auth.getUser();
@@ -138,11 +163,23 @@ export const LevelProgress = {
         const rows = await DatabaseService.getStudentProgress(userId);
         const row = Array.isArray(rows) ? rows.find(r => Number(r.level_group) === lg) : null;
         if (row) {
-        const currentStage = Math.max(1, Math.min(stagesPerLevel[lg], Number(row.current_stage || 1)));
+          const currentStage = Math.max(1, Math.min(stagesPerLevel[lg], Number(row.current_stage || 1)));
           const completedStages = Math.max(0, Math.min(stagesPerLevel[lg], Number(row.completed_stages || 0)));
-          const maxUnlock = Math.min(currentStage, stagesPerLevel[lg]);
-          for (let s = 1; s <= maxUnlock; s++) unlocked.add(s);
-          for (let s = 1; s <= completedStages; s++) unlocked.add(s);
+          
+          // Add all unlocked stages up to current
+          for (let s = 1; s <= currentStage; s++) {
+            unlocked.add(s);
+          }
+          
+          // Add all completed stages
+          for (let s = 1; s <= completedStages; s++) {
+            unlocked.add(s);
+          }
+          
+          // If all stages are completed, add the completion marker (stage 3)
+          if (completedStages >= stagesPerLevel[lg]) {
+            unlocked.add(stagesPerLevel[lg] + 1); // Add completion marker
+          }
         }
       }
     } catch (e) {
@@ -151,13 +188,14 @@ export const LevelProgress = {
 
     // Ensure progression: for levels > 1, don't unlock any stages if previous level is not completed
     if (lg > 1) {
-      const prevCompleted = (await LevelProgress.getCompletedLevels(lg - 1)).includes(stagesPerLevel[lg - 1]);
+      const prevProgress = await LevelProgress.getCompletedLevels(lg - 1);
+      const prevCompleted = prevProgress.includes(stagesPerLevel[lg - 1] + 1); // Check for completion marker
       if (!prevCompleted) {
         unlocked.clear();
       }
     }
 
-    const result = uniqSorted(Array.from(unlocked).map(clampStage));
+    const result = uniqSorted(Array.from(unlocked));
 
     // Persist merged if different
     if (JSON.stringify(result) !== JSON.stringify(localArr)) {
@@ -209,6 +247,7 @@ export const LevelProgress = {
     try {
       const lg = Number(levelGroup) || 1;
       const st = clampStage(stage);
+      const maxStage = stagesPerLevel[lg];
 
       // Local first for responsive UI
       const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
@@ -218,18 +257,28 @@ export const LevelProgress = {
       const updated = new Set(current);
       updated.add(1);
       updated.add(st);
-      if (isCorrect && st < stagesPerLevel[lg]) {
+      
+      // If this is correct and not the final stage, unlock next stage
+      if (isCorrect && st < maxStage) {
         updated.add(st + 1);
       }
+      
+      // If this is the final stage (stage 2), add a marker (stage 3) to indicate completion
+      // This is only for tracking completion, not an actual playable stage
+      if (isCorrect && st === maxStage) {
+        updated.add(maxStage + 1); // Add stage 3 as a completion marker
+      }
+      
       // Unlock next level group stage 1 if final stage of current level completed
-      if (st === stagesPerLevel[lg] && lg < 3) {
+      if (st === maxStage && lg < 3 && isCorrect) {
         const nextKey = `level${lg + 1}`;
         const nextArr = Array.isArray(all[nextKey]) ? all[nextKey] : [];
         const nextSet = new Set(nextArr);
         nextSet.add(1);
         all[nextKey] = uniqSorted(Array.from(nextSet).map(clampStage));
       }
-      const localNext = { ...all, [key]: uniqSorted(Array.from(updated).map(clampStage)) };
+      
+      const localNext = { ...all, [key]: uniqSorted(Array.from(updated)) };
       await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(localNext));
 
       // Best-effort DB update
@@ -251,84 +300,139 @@ export const LevelProgress = {
     }
   },
 
-  // Aggregate stats for LevelSelect (DB-first, fallback local)
-  getUserStats: async () => {
+  /**
+   * Record a quiz answer (correct or wrong)
+   */
+  async recordAnswer(levelGroup, stage, isCorrect) {
     try {
-      const baseLevels = {
-        1: { completedStages: 0, currentStage: 1, completionRate: 0, totalAttempts: 0, correctAnswers: 0, accuracy: 0, unlockedStages: [1] },
-        2: { completedStages: 0, currentStage: 1, completionRate: 0, totalAttempts: 0, correctAnswers: 0, accuracy: 0, unlockedStages: [] },
-        3: { completedStages: 0, currentStage: 1, completionRate: 0, totalAttempts: 0, correctAnswers: 0, accuracy: 0, unlockedStages: [] },
-      };
+      const key = `@answer_stats_${levelGroup}_${stage}`;
+      const existing = await AsyncStorage.getItem(key);
+      const stats = existing ? JSON.parse(existing) : { correct: 0, wrong: 0 };
+      
+      if (isCorrect) {
+        stats.correct += 1;
+      } else {
+        stats.wrong += 1;
+      }
+      
+      await AsyncStorage.setItem(key, JSON.stringify(stats));
+      console.log(`[LevelProgress] Recorded ${isCorrect ? 'correct' : 'wrong'} answer for Level ${levelGroup} Stage ${stage}`);
+    } catch (error) {
+      console.error('[LevelProgress] Failed to record answer:', error);
+    }
+  },
 
-      // Seed unlocked from local storage
-      try {
-        const local = await LevelProgress.getAllProgress();
-        if (local?.level1) baseLevels[1].unlockedStages = uniqSorted(local.level1.map(clampStage));
-        if (local?.level2) baseLevels[2].unlockedStages = uniqSorted(local.level2.map(clampStage));
-        if (local?.level3) baseLevels[3].unlockedStages = uniqSorted(local.level3.map(clampStage));
-      } catch {}
+  /**
+   * Get answer statistics for a specific level and stage
+   */
+  async getAnswerStats(levelGroup, stage) {
+    try {
+      const key = `@answer_stats_${levelGroup}_${stage}`;
+      const data = await AsyncStorage.getItem(key);
+      return data ? JSON.parse(data) : { correct: 0, wrong: 0 };
+    } catch (error) {
+      console.error('[LevelProgress] Failed to get answer stats:', error);
+      return { correct: 0, wrong: 0 };
+    }
+  },
 
-      const userId = await LevelProgress.getCurrentUserId();
-      let rows = [];
-      if (userId && DatabaseService?.getStudentProgress) {
-        try {
-          rows = await DatabaseService.getStudentProgress(userId);
-        } catch {
-          rows = [];
+  /**
+   * Get overall user statistics with accurate calculations
+   */
+  async getUserStats() {
+    try {
+      let totalCorrect = 0;
+      let totalWrong = 0;
+
+      // Collect stats from all levels and stages
+      for (let levelGroup = 1; levelGroup <= 3; levelGroup++) {
+        for (let stage = 1; stage <= 2; stage++) {
+          const stats = await this.getAnswerStats(levelGroup, stage);
+          totalCorrect += stats.correct;
+          totalWrong += stats.wrong;
         }
       }
 
-      const levels = { ...baseLevels };
+      const totalAttempts = totalCorrect + totalWrong;
+      const accuracy = totalAttempts > 0 
+        ? Math.round((totalCorrect / totalAttempts) * 100) 
+        : 0;
 
-      for (const r of rows) {
-        const g = Number(r.level_group);
-        if (![1, 2, 3].includes(g)) continue;
-
-        levels[g].completedStages = Number(r.completed_stages ?? 0);
-        levels[g].currentStage = Number(r.current_stage ?? 1);
-        levels[g].totalAttempts = Number(r.total_attempts ?? 0);
-        levels[g].correctAnswers = Number(r.correct_answers ?? 0);
-        levels[g].accuracy = Number(r.accuracy ?? toPct(levels[g].correctAnswers, levels[g].totalAttempts));
-        levels[g].completionRate = Number(r.completion_rate ?? toPct(levels[g].completedStages, stagesPerLevel[g]));
-
-        // Keep unlockedStages consistent with completed/current
-        const unlocked = new Set(levels[g].unlockedStages || []);
-        unlocked.add(1);
-        const maxUnlock = Math.min(Math.max(levels[g].currentStage + 1, 1), stagesPerLevel[g]);
-        for (let s = 1; s <= maxUnlock; s++) unlocked.add(s);
-        for (let s = 1; s <= levels[g].completedStages; s++) unlocked.add(s);
-
-        // Ensure progression: for levels > 1, don't unlock stages beyond 1 if previous level is not completed
-        if (g > 1) {
-          const prevCompleted = levels[g - 1].completedStages >= stagesPerLevel[g - 1];
-          if (!prevCompleted) {
-            unlocked.forEach(s => {
-              if (s > 1) unlocked.delete(s);
-            });
-          }
-        }
-
-        levels[g].unlockedStages = uniqSorted(Array.from(unlocked).map(clampStage));
-      }
-
-      const overallAttempts = [1, 2, 3].reduce((sum, k) => sum + (levels[k].totalAttempts || 0), 0);
-      const overallCorrect = [1, 2, 3].reduce((sum, k) => sum + (levels[k].correctAnswers || 0), 0);
-      const overall = {
-        totalAttempts: overallAttempts,
-        correctAnswers: overallCorrect,
-        accuracy: toPct(overallCorrect, overallAttempts),
-      };
-
-      return { overall, levels };
-    } catch {
       return {
-        overall: { totalAttempts: 0, correctAnswers: 0, accuracy: 0 },
-        levels: {
-          1: { completedStages: 0, currentStage: 1, completionRate: 0, totalAttempts: 0, correctAnswers: 0, accuracy: 0, unlockedStages: [1] },
-          2: { completedStages: 0, currentStage: 1, completionRate: 0, totalAttempts: 0, correctAnswers: 0, accuracy: 0, unlockedStages: [] },
-          3: { completedStages: 0, currentStage: 1, completionRate: 0, totalAttempts: 0, correctAnswers: 0, accuracy: 0, unlockedStages: [] },
+        overall: {
+          accuracy,
+          totalAttempts,
+          correctAnswers: totalCorrect,
+          wrongAnswers: totalWrong,
         },
       };
+    } catch (error) {
+      console.error('[LevelProgress] Failed to get user stats:', error);
+      return {
+        overall: {
+          accuracy: 0,
+          totalAttempts: 0,
+          correctAnswers: 0,
+          wrongAnswers: 0,
+        },
+      };
+    }
+  },
+
+  /**
+   * Get completion percentage based on actually completed stages
+   */
+  async getCompletionPercentage() {
+    try {
+      let completedStages = 0;
+      const totalStages = 6; // 3 levels × 2 stages each
+
+      for (let levelGroup = 1; levelGroup <= 3; levelGroup++) {
+        const completedLevels = await this.getCompletedLevels(levelGroup);
+        
+        // Count completed stages (stage N is completed if stage N+1 is unlocked)
+        if (completedLevels.includes(2)) {
+          completedStages += 1; // Stage 1 completed
+        }
+        if (completedLevels.includes(3)) {
+          completedStages += 1; // Stage 2 completed
+        }
+      }
+
+      const percentage = Math.round((completedStages / totalStages) * 100);
+      console.log(`[LevelProgress] Completion: ${completedStages}/${totalStages} stages = ${percentage}%`);
+      
+      return percentage;
+    } catch (error) {
+      console.error('[LevelProgress] Failed to get completion percentage:', error);
+      return 0;
+    }
+  },
+
+  /**
+   * Reset all progress including answer statistics
+   */
+  async resetProgress() {
+    try {
+      console.log('[LevelProgress] Starting full reset...');
+      
+      // Reset level progress
+      await AsyncStorage.setItem('@level_progress_1', JSON.stringify([1]));
+      await AsyncStorage.setItem('@level_progress_2', JSON.stringify([]));
+      await AsyncStorage.setItem('@level_progress_3', JSON.stringify([]));
+      
+      // Reset answer statistics
+      for (let levelGroup = 1; levelGroup <= 3; levelGroup++) {
+        for (let stage = 1; stage <= 2; stage++) {
+          const key = `@answer_stats_${levelGroup}_${stage}`;
+          await AsyncStorage.removeItem(key);
+        }
+      }
+      
+      console.log('[LevelProgress] Full reset complete');
+    } catch (error) {
+      console.error('[LevelProgress] Reset failed:', error);
+      throw error;
     }
   },
 
