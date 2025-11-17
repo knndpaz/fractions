@@ -35,7 +35,7 @@ const stagesPerLevel = {
   3: 2,
 };
 
-// Burger Menu Component (converted to React Native)
+// Burger Menu Component
 const BurgerMenu = ({
   visible,
   onClose,
@@ -165,45 +165,6 @@ export default function AdventureGame({ navigation, route }) {
       return null;
     }
   };
-
-  const levels = [
-    {
-      id: 1,
-      difficulty: "Easy",
-      title: "The Food Forest",
-      levelGroup: 1,
-      isUnlocked: true,
-      isCompleted: completedLevels[1],
-      completedStages: getCompletedStagesCount(1),
-      backgroundImage: getLevelBackgroundImage(1),
-      dialogueText:
-        "These food trees dropped their slices! Let's put them together to make whole pizzas again!",
-    },
-    {
-      id: 2,
-      difficulty: "Medium",
-      title: "The Potion River",
-      levelGroup: 2,
-      isUnlocked: isLevelGroupUnlocked(2),
-      isCompleted: completedLevels[2],
-      completedStages: getCompletedStagesCount(2),
-      backgroundImage: getLevelBackgroundImage(2),
-      dialogueText:
-        "Oh, no! this river is filled with potions! Let's clean it, by pouring substances. Let's add the right fractions to create a perfect cleaning substance!",
-    },
-    {
-      id: 3,
-      difficulty: "Difficult",
-      title: "Broken Community Houses",
-      levelGroup: 3,
-      isUnlocked: isLevelGroupUnlocked(3),
-      isCompleted: completedLevels[3],
-      completedStages: getCompletedStagesCount(3),
-      backgroundImage: getLevelBackgroundImage(3),
-      dialogueText:
-        "Uh-oh…. The houses are still broken. To make the neighborhood whole again, we need to add dissimilar fractions.",
-    },
-  ];
 
   useEffect(() => {
     loadUserData();
@@ -365,13 +326,31 @@ export default function AdventureGame({ navigation, route }) {
     }
   };
 
-  const handleLevelPress = (levelGroup) => {
-    console.log("Attempting to navigate to level group:", levelGroup);
-    if (isLevelGroupUnlocked(levelGroup)) {
+  const handleScroll = (event) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / (CARD_WIDTH + CARD_SPACING));
+    setActiveIndex(index);
+  };
+
+  const scrollToIndex = (index) => {
+    scrollViewRef.current?.scrollTo({
+      x: index * (CARD_WIDTH + CARD_SPACING),
+      animated: true,
+    });
+    setActiveIndex(index);
+  };
+
+  const handleCardPress = (level, index) => {
+    console.log("Attempting to navigate to level group:", level.levelGroup);
+
+    if (level.isUnlocked) {
+      setSelectedLevel(level.id);
+      scrollToIndex(index);
+
       console.log("Level group unlocked, navigating...");
 
       // Check if the level is already completed
-      const isCompleted = isLevelGroupCompleted(levelGroup);
+      const isCompleted = isLevelGroupCompleted(level.levelGroup);
 
       const levelDialogues = {
         1: {
@@ -395,20 +374,26 @@ export default function AdventureGame({ navigation, route }) {
         // If level is completed, skip dialogue and go directly to MapLevels
         if (isCompleted) {
           navigation.navigate("MapLevels", {
-            levelGroup,
+            levelGroup: level.levelGroup,
             selectedCharacter: characterIndex,
           });
         } else {
           // If level is not completed, show dialogue first
           navigation.navigate("Dialogue", {
             selectedCharacter: characterIndex,
-            ...levelDialogues[levelGroup],
+            ...levelDialogues[level.levelGroup],
             nextScreen: "MapLevels",
-            nextScreenParams: { levelGroup, selectedCharacter: characterIndex },
+            nextScreenParams: {
+              levelGroup: level.levelGroup,
+              selectedCharacter: characterIndex,
+            },
           });
         }
       } else {
-        Alert.alert(`Level ${level.levelGroup}`, level.dialogueText);
+        Alert.alert(
+          `Level ${level.levelGroup}`,
+          levelDialogues[level.levelGroup].dialogueText
+        );
       }
     } else {
       const previousLevel = level.levelGroup - 1;
@@ -428,13 +413,11 @@ export default function AdventureGame({ navigation, route }) {
   function isLevelGroupCompleted(levelGroup) {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
     // A level group is completed when stage 3 is unlocked (meaning both stages 1 and 2 are done)
-    // stagesPerLevel[levelGroup] is 2, but we need to check for stage 3 being unlocked
     return levelProgress.includes(stagesPerLevel[levelGroup] + 1);
   }
 
   function getCompletedStagesCount(levelGroup) {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
-    const totalStages = stagesPerLevel[levelGroup]; // Always 2
 
     if (levelProgress.length === 0) return 0;
 
@@ -458,38 +441,38 @@ export default function AdventureGame({ navigation, route }) {
     return completedCount;
   }
 
-  const getUnlockedLevelsCount = () => {
-    let count = 0;
-    if (isLevelGroupUnlocked(1)) count++;
-    if (isLevelGroupUnlocked(2)) count++;
-    if (isLevelGroupUnlocked(3)) count++;
-    return count;
-  };
-
-  // Get images safely
-  const bgImage = (() => {
-    try {
-      return require("../assets/bg1.png");
-    } catch (e) {
-      return null;
-    }
-  })();
-
-  const profileImage = (() => {
-    try {
-      return require("../assets/profile.png");
-    } catch (e) {
-      return null;
-    }
-  })();
-
-  const faviconImage = (() => {
-    try {
-      return require("../assets/favicon.png");
-    } catch (e) {
-      return null;
-    }
-  })();
+  const levels = [
+    {
+      id: 1,
+      difficulty: "Easy",
+      title: "The Food Forest",
+      levelGroup: 1,
+      isUnlocked: true,
+      isCompleted: completedLevels[1],
+      completedStages: getCompletedStagesCount(1),
+      backgroundImage: getLevelBackgroundImage(1),
+    },
+    {
+      id: 2,
+      difficulty: "Medium",
+      title: "The Potion River",
+      levelGroup: 2,
+      isUnlocked: isLevelGroupUnlocked(2),
+      isCompleted: completedLevels[2],
+      completedStages: getCompletedStagesCount(2),
+      backgroundImage: getLevelBackgroundImage(2),
+    },
+    {
+      id: 3,
+      difficulty: "Difficult",
+      title: "Broken Community Houses",
+      levelGroup: 3,
+      isUnlocked: isLevelGroupUnlocked(3),
+      isCompleted: completedLevels[3],
+      completedStages: getCompletedStagesCount(3),
+      backgroundImage: getLevelBackgroundImage(3),
+    },
+  ];
 
   if (isLoading) {
     return null; // Return nothing while loading
@@ -500,7 +483,7 @@ export default function AdventureGame({ navigation, route }) {
       <View style={styles.gradientContainer}>
         {/* Background Image */}
         <Image
-          source={require("../assets/bg 1.png")}
+          source={require("../assets/bg1.png")}
           style={styles.backgroundImage}
           resizeMode="cover"
         />
@@ -554,6 +537,7 @@ export default function AdventureGame({ navigation, route }) {
           </View>
         </View>
 
+        {/* Burger Menu Modal */}
         <BurgerMenu
           visible={menuOpen}
           onClose={() => setMenuOpen(false)}
