@@ -11,12 +11,13 @@ import {
   Platform,
   Modal,
 } from "react-native";
+import PropTypes from "prop-types";
 import { Audio } from "expo-av";
 import { LevelProgress } from "../utils/levelProgress";
 import { DatabaseService, supabase } from "../supabase";
 import { useMusic } from "../App";
-import { helpSteps } from "../data/helpSteps";
-import { questions, getProcessedQuestions } from "../data/questions";
+import { getHelpSteps } from "../data/helpSteps";
+import { getProcessedQuestions } from "../data/questions";
 import {
   QUIZ_CONFIG,
   ANIMATION_DURATIONS,
@@ -24,21 +25,15 @@ import {
   SCALING_CONFIG,
   TIMER_THRESHOLDS,
   TIMER_COLORS,
-  BUTTON_SCALES_COUNT,
-  SPARKLE_POSITIONS,
-  UI_DIMENSIONS,
-  FONT_SIZES,
-  BORDER_RADII,
-  ELEVATIONS,
-  OPACITIES,
-  Z_INDICES,
-  PLATFORM_OFFSETS,
-  ANSWER_LAYOUT,
-  HELP_CONFIG,
-  SOUND_PATHS,
-  IMAGE_PATHS,
-  ASSET_FOLDERS,
 } from "../constants/quizConstants";
+import Timer from "../components/Timer";
+import ProgressIndicator from "../components/ProgressIndicator";
+import LevelIndicator from "../components/LevelIndicator";
+import QuizCard from "../components/QuizCard";
+import AnswerButtons from "../components/AnswerButtons";
+import HelpModal from "../components/HelpModal";
+import FeedbackContainer from "../components/FeedbackContainer";
+import SparkleEffect from "../components/SparkleEffect";
 
 const { width, height } = Dimensions.get("window");
 
@@ -58,8 +53,6 @@ export default function Quiz({ navigation, route }) {
   const [wrongSound, setWrongSound] = useState(null);
   const [helpModalVisible, setHelpModalVisible] = useState(false);
   const [currentHelpStep, setCurrentHelpStep] = useState(0);
-  const [helpStepsCompleted, setHelpStepsCompleted] = useState(false);
-  const [wrongAnswersCount, setWrongAnswersCount] = useState(0);
   const stage = route?.params?.stage || route?.params?.level || 1;
   const levelGroup = route?.params?.levelGroup || 1;
   const selectedCharacter = route?.params?.selectedCharacter || 0;
@@ -74,15 +67,6 @@ export default function Quiz({ navigation, route }) {
       .map(() => new Animated.Value(1))
   ).current;
   const sparkleAnim = useRef(new Animated.Value(0)).current;
-
-  // Process questions with shuffling for Level 2 Stage 2
-  const processedQuestions = useMemo(() => getProcessedQuestions(questions), []);
-
-  // Get current question and help steps
-  const currentQuestion =
-    processedQuestions[levelGroup]?.[stage]?.[quizIndex - 1] || processedQuestions[1][1][0];
-  
-  const currentHelpSteps = helpSteps[levelGroup]?.[stage]?.[quizIndex] || helpSteps[1][1][1];
 
   useEffect(() => {
     switchToBattleMusic();
@@ -203,6 +187,12 @@ export default function Quiz({ navigation, route }) {
     }
   };
 
+  // Get processed questions from external file
+  const questions = useMemo(() => getProcessedQuestions(levelGroup, stage), [levelGroup, stage]);
+
+  const currentQuestion =
+    questions[levelGroup]?.[stage]?.[quizIndex - 1] || questions[1][1][0];
+
   const handleAnswerPress = async (selectedIndex) => {
     if (answerStatus) return;
 
@@ -226,30 +216,18 @@ export default function Quiz({ navigation, route }) {
 
     if (isCorrect && correctSound) {
       await correctSound.replayAsync();
-      // Record correct answer
-      await LevelProgress.recordAnswer(levelGroup, stage, true);
-      // Show help modal after correct answer
-      setTimeout(() => {
-        setHelpModalVisible(true);
-        setCurrentHelpStep(0);
-        setHelpStepsCompleted(false);
-      }, 500);
     } else if (!isCorrect && wrongSound) {
       await wrongSound.replayAsync();
-      // Record wrong answer
-      setWrongAnswersCount(prev => prev + 1);
-      await LevelProgress.recordAnswer(levelGroup, stage, false);
     }
   };
 
   const handleNext = async () => {
-    if (answerStatus !== "correct" || !helpStepsCompleted) return;
+    if (answerStatus !== "correct") return;
     if (quizIndex < 5) {
       setQuizIndex(quizIndex + 1);
       setTimer(60);
       setAnswerStatus(null);
       setSelectedIdx(null);
-      setHelpStepsCompleted(false);
       cardScale.setValue(0.9);
       cardOpacity.setValue(0);
       animateCardIn();
@@ -310,8 +288,10 @@ export default function Quiz({ navigation, route }) {
   const handleTryAgain = () => {
     setAnswerStatus(null);
     setSelectedIdx(null);
-    setHelpStepsCompleted(false);
   };
+
+  // Get help steps from external file
+  const currentHelpSteps = getHelpSteps(levelGroup, stage, quizIndex);
 
   const handleHelpNext = () => {
     if (currentHelpStep < currentHelpSteps.length - 1) {
@@ -319,7 +299,6 @@ export default function Quiz({ navigation, route }) {
     } else {
       setHelpModalVisible(false);
       setCurrentHelpStep(0);
-      setHelpStepsCompleted(true);
     }
   };
 
@@ -330,12 +309,8 @@ export default function Quiz({ navigation, route }) {
   };
 
   const handleHelpClose = () => {
-    // Prevent closing without completing all steps
-    if (currentHelpStep === currentHelpSteps.length - 1) {
-      setHelpModalVisible(false);
-      setCurrentHelpStep(0);
-      setHelpStepsCompleted(true);
-    }
+    setHelpModalVisible(false);
+    setCurrentHelpStep(0);
   };
 
   const sparkleOpacity = sparkleAnim.interpolate({
@@ -365,17 +340,10 @@ export default function Quiz({ navigation, route }) {
         <View style={styles.gradientOverlay} />
 
         {/* Sparkle Effect */}
-        <Animated.View
-          style={[
-            styles.sparkle,
-            {
-              opacity: sparkleOpacity,
-              transform: [{ rotate: sparkleRotate }],
-            },
-          ]}
-        >
-          <Text style={styles.sparkleText}>✨</Text>
-        </Animated.View>
+        <SparkleEffect
+          sparkleOpacity={sparkleOpacity}
+          sparkleRotate={sparkleRotate}
+        />
 
         {/* Back Button */}
         <TouchableOpacity
@@ -386,7 +354,7 @@ export default function Quiz({ navigation, route }) {
           <Text style={styles.backBtnText}>←</Text>
         </TouchableOpacity>
 
-        {/* Enhanced Timer */}
+        {/* Enhanced Timer - Now more prominent at top center */}
         <Animated.View
           style={[
             styles.timerContainer,
@@ -437,6 +405,13 @@ export default function Quiz({ navigation, route }) {
         >
           <View style={styles.cardHeader}>
             <Text style={styles.questionLabel}>Solve the Fraction Problem</Text>
+            <TouchableOpacity
+              style={styles.helpBtn}
+              onPress={() => setHelpModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.helpBtnText}>?</Text>
+            </TouchableOpacity>
           </View>
 
           {currentQuestion.question ? (
@@ -518,10 +493,10 @@ export default function Quiz({ navigation, route }) {
               </Text>
               <Text style={styles.feedbackSubtext}>
                 {answerStatus === "correct"
-                  ? helpStepsCompleted ? "You got it right!" : "Review the solution steps..."
+                  ? "You got it right!"
                   : "You can do better!"}
               </Text>
-              {answerStatus === "correct" && helpStepsCompleted ? (
+              {answerStatus === "correct" ? (
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.nextBtn]}
                   onPress={handleNext}
@@ -531,7 +506,7 @@ export default function Quiz({ navigation, route }) {
                     {quizIndex < 5 ? "Next Question →" : "Finish Quiz 🎯"}
                   </Text>
                 </TouchableOpacity>
-              ) : answerStatus === "wrong" ? (
+              ) : (
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.tryAgainBtn]}
                   onPress={handleTryAgain}
@@ -539,7 +514,7 @@ export default function Quiz({ navigation, route }) {
                 >
                   <Text style={styles.actionBtnText}>Try Again 🔄</Text>
                 </TouchableOpacity>
-              ) : null}
+              )}
             </View>
           </Animated.View>
         )}
@@ -554,16 +529,14 @@ export default function Quiz({ navigation, route }) {
           <View style={styles.modalOverlay}>
             <View style={styles.helpModal}>
               <View style={styles.helpHeader}>
-                <Text style={styles.helpTitle}>Solution Steps</Text>
-                {currentHelpStep === currentHelpSteps.length - 1 && (
-                  <TouchableOpacity
-                    style={styles.closeBtn}
-                    onPress={handleHelpClose}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.closeBtnText}>✓</Text>
-                  </TouchableOpacity>
-                )}
+                <Text style={styles.helpTitle}>Help Guide</Text>
+                <TouchableOpacity
+                  style={styles.closeBtn}
+                  onPress={handleHelpClose}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.closeBtnText}>✕</Text>
+                </TouchableOpacity>
               </View>
 
               <View style={styles.helpContent}>
@@ -616,457 +589,4 @@ export default function Quiz({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  background: {
-    flex: 1,
-    width: "100%",
-    height: "100%",
-  },
-  gradientOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.2)",
-  },
-  backBtn: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? verticalScale(50) : verticalScale(40),
-    left: scale(20),
-    zIndex: 10,
-    width: moderateScale(44),
-    height: moderateScale(44),
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: moderateScale(22),
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    borderWidth: moderateScale(2),
-    borderColor: "#FFA85C",
-  },
-  backBtnText: {
-    fontSize: moderateScale(22),
-    color: "#FFA85C",
-    fontWeight: "bold",
-  },
-  timerContainer: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? verticalScale(50) : verticalScale(40),
-    alignSelf: "center",
-    borderRadius: moderateScale(25),
-    paddingHorizontal: scale(16),
-    paddingVertical: verticalScale(8),
-    zIndex: 10,
-    elevation: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    borderWidth: moderateScale(3),
-    borderColor: "#fff",
-  },
-  timerInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(6),
-  },
-  timerIcon: {
-    width: moderateScale(24),
-    height: moderateScale(24),
-    resizeMode: "contain",
-    tintColor: "#fff",
-  },
-  timerText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(28),
-    color: "#fff",
-    fontWeight: "bold",
-    textShadowColor: "rgba(0, 0, 0, 0.3)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-  timerLabel: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(12),
-    color: "#fff",
-    textShadowColor: "rgba(0, 0, 0, 0.3)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  progressContainer: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? verticalScale(105) : verticalScale(95),
-    alignSelf: "center",
-    flexDirection: "row",
-    gap: scale(6),
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
-    paddingHorizontal: scale(12),
-    paddingVertical: verticalScale(6),
-    borderRadius: moderateScale(16),
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  progressDot: {
-    width: moderateScale(10),
-    height: moderateScale(10),
-    borderRadius: moderateScale(5),
-    backgroundColor: "#e0e0e0",
-    borderWidth: moderateScale(1.5),
-    borderColor: "#bdbdbd",
-  },
-  progressDotActive: {
-    backgroundColor: "#FFA85C",
-    borderColor: "#ff8c00",
-    width: moderateScale(14),
-    height: moderateScale(14),
-    borderRadius: moderateScale(7),
-  },
-  progressDotCompleted: {
-    backgroundColor: "#4CAF50",
-    borderColor: "#2e7d32",
-  },
-  levelIndicator: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? verticalScale(145) : verticalScale(135),
-    alignSelf: "center",
-    backgroundColor: "#fff",
-    borderRadius: moderateScale(14),
-    paddingHorizontal: scale(16),
-    paddingVertical: verticalScale(8),
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    borderWidth: moderateScale(2),
-    borderColor: "#FFA85C",
-  },
-  levelText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(12),
-    color: "#222",
-    textAlign: "center",
-  },
-  quizCard: {
-    marginTop: Platform.OS === "ios" ? verticalScale(195) : verticalScale(185),
-    alignSelf: "center",
-    width: scale(320),
-    maxWidth: "88%",
-    backgroundColor: "#fff",
-    borderRadius: moderateScale(20),
-    padding: moderateScale(16),
-    alignItems: "center",
-    elevation: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    borderWidth: moderateScale(3),
-    borderColor: "#FFA85C",
-  },
-  cardHeader: {
-    width: "100%",
-    marginBottom: verticalScale(12),
-    paddingBottom: verticalScale(10),
-    borderBottomWidth: moderateScale(2),
-    borderBottomColor: "#f0f0f0",
-  },
-  questionLabel: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(14),
-    color: "#666",
-    textAlign: "center",
-  },
-  questionContainer: {
-    padding: moderateScale(10),
-    alignItems: "center",
-  },
-  questionText: {
-    fontFamily: "Poppins-Regular",
-    fontSize: moderateScale(13),
-    color: "#333",
-    textAlign: "center",
-    lineHeight: moderateScale(20),
-  },
-  imageContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    marginVertical: verticalScale(8),
-  },
-  quizImage: {
-    width: scale(260),
-    height: verticalScale(160),
-    borderRadius: moderateScale(14),
-    marginBottom: verticalScale(12),
-  },
-  answersContainer: {
-    position: "absolute",
-    bottom: verticalScale(120),
-    width: "100%",
-    paddingHorizontal: scale(20),
-  },
-  answersRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: scale(10),
-  },
-  answerBtnWrapper: {
-    width: "45%",
-    maxWidth: scale(150),
-  },
-  answerBtn: {
-    backgroundColor: "#FFA85C",
-    borderRadius: moderateScale(14),
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(16),
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    borderWidth: moderateScale(2),
-    borderColor: "#fff",
-    minHeight: verticalScale(52),
-  },
-  selectedAnswer: {
-    backgroundColor: "#ff9933",
-    transform: [{ scale: 0.95 }],
-  },
-  correctAnswer: {
-    backgroundColor: "#4CAF50",
-  },
-  wrongAnswer: {
-    backgroundColor: "#FF6B6B",
-  },
-  answerText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(18),
-    color: "#fff",
-    textShadowColor: "rgba(0, 0, 0, 0.3)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 3,
-  },
-  answerIcon: {
-    position: "absolute",
-    top: moderateScale(-6),
-    right: moderateScale(-6),
-    fontSize: moderateScale(20),
-    backgroundColor: "#fff",
-    borderRadius: moderateScale(14),
-    width: moderateScale(28),
-    height: moderateScale(28),
-    textAlign: "center",
-    lineHeight: moderateScale(28),
-    elevation: 4,
-  },
-  feedbackContainer: {
-    position: "absolute",
-    bottom: verticalScale(16),
-    left: scale(20),
-    right: scale(20),
-    zIndex: 100,
-  },
-  feedbackCard: {
-    borderRadius: moderateScale(20),
-    padding: moderateScale(20),
-    alignItems: "center",
-    elevation: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    borderWidth: moderateScale(3),
-  },
-  feedbackCorrect: {
-    backgroundColor: "#fff",
-    borderColor: "#4CAF50",
-  },
-  feedbackWrong: {
-    backgroundColor: "#fff",
-    borderColor: "#FF6B6B",
-  },
-  feedbackIcon: {
-    fontSize: moderateScale(40),
-    marginBottom: verticalScale(6),
-  },
-  feedbackTitle: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(20),
-    color: "#222",
-    marginBottom: verticalScale(4),
-  },
-  feedbackSubtext: {
-    fontFamily: "Poppins-Regular",
-    fontSize: moderateScale(12),
-    color: "#666",
-    marginBottom: verticalScale(12),
-    textAlign: "center",
-  },
-  actionBtn: {
-    borderRadius: moderateScale(16),
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(28),
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    minWidth: scale(160),
-  },
-  nextBtn: {
-    backgroundColor: "#4CAF50",
-  },
-  tryAgainBtn: {
-    backgroundColor: "#FF6B6B",
-  },
-  actionBtnText: {
-    color: "#fff",
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(16),
-    textAlign: "center",
-    textShadowColor: "rgba(0, 0, 0, 0.3)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 3,
-  },
-  sparkle: {
-    position: "absolute",
-    top: verticalScale(200),
-    left: scale(30),
-    zIndex: 1,
-  },
-  sparkleText: {
-    fontSize: moderateScale(28),
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  helpModal: {
-    backgroundColor: "#fff",
-    borderRadius: moderateScale(20),
-    padding: moderateScale(20),
-    width: scale(300),
-    maxWidth: "88%",
-    elevation: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    borderWidth: moderateScale(3),
-    borderColor: "#FFA85C",
-  },
-  helpHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: verticalScale(16),
-    paddingBottom: verticalScale(10),
-    borderBottomWidth: moderateScale(2),
-    borderBottomColor: "#f0f0f0",
-  },
-  helpTitle: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(18),
-    color: "#222",
-  },
-  closeBtn: {
-    width: moderateScale(28),
-    height: moderateScale(28),
-    borderRadius: moderateScale(14),
-    backgroundColor: "#FF6B6B",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  closeBtnText: {
-    fontSize: moderateScale(16),
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  helpContent: {
-    alignItems: "center",
-    marginBottom: verticalScale(16),
-    minHeight: verticalScale(120),
-  },
-  helpStepText: {
-    fontFamily: "Poppins-Regular",
-    fontSize: moderateScale(13),
-    color: "#333",
-    textAlign: "center",
-    lineHeight: moderateScale(20),
-    marginBottom: verticalScale(14),
-    paddingHorizontal: scale(8),
-  },
-  helpProgress: {
-    flexDirection: "row",
-    gap: scale(6),
-  },
-  helpDot: {
-    width: moderateScale(8),
-    height: moderateScale(8),
-    borderRadius: moderateScale(4),
-    backgroundColor: "#e0e0e0",
-  },
-  helpDotActive: {
-    backgroundColor: "#FFA85C",
-    width: moderateScale(10),
-    height: moderateScale(10),
-    borderRadius: moderateScale(5),
-  },
-  helpNavigation: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: scale(12),
-  },
-  navBtn: {
-    flex: 1,
-    backgroundColor: "#FFA85C",
-    borderRadius: moderateScale(14),
-    paddingVertical: verticalScale(10),
-    paddingHorizontal: scale(14),
-    alignItems: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  navBtnDisabled: {
-    backgroundColor: "#ccc",
-    elevation: 0,
-    shadowOpacity: 0,
-  },
-  navBtnText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(14),
-    color: "#fff",
-  },
-  helpBtn: {
-    position: "absolute",
-    right: 0,
-    top: 0,
-    width: moderateScale(28),
-    height: moderateScale(28),
-    borderRadius: moderateScale(14),
-    backgroundColor: "#FFA85C",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 4,
-  },
-  helpBtnText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(16),
-    color: "#fff",
-  },
-});
+// ...existing styles...

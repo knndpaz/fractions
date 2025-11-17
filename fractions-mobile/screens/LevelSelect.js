@@ -35,8 +35,14 @@ const stagesPerLevel = {
   3: 2,
 };
 
-// Burger Menu Component
-const BurgerMenu = ({ visible, onClose, onLogout, onReset }) => {
+// Burger Menu Component (converted to React Native)
+const BurgerMenu = ({
+  visible,
+  onClose,
+  onLogout,
+  onReset,
+  onLeaderboards,
+}) => {
   const slideAnim = useRef(new Animated.Value(-300)).current;
 
   useEffect(() => {
@@ -76,8 +82,13 @@ const BurgerMenu = ({ visible, onClose, onLogout, onReset }) => {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.menuItem} onPress={onReset}>
+          <TouchableOpacity style={styles.menuItem} onPress={onLeaderboards}>
             <Text style={styles.menuItemIcon}>🏆</Text>
+            <Text style={styles.menuItemText}>Leaderboards</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem} onPress={onReset}>
+            <Text style={styles.menuItemIcon}>🔄</Text>
             <Text style={styles.menuItemText}>Reset Progress</Text>
           </TouchableOpacity>
 
@@ -106,7 +117,12 @@ export default function AdventureGame({ navigation, route }) {
     level2: [],
     level3: [],
   });
-  const [userStats, setUserStats] = useState({ accuracy: 0, totalAttempts: 0 });
+  const [userStats, setUserStats] = useState({
+    accuracy: 0,
+    totalAttempts: 0,
+    correctAnswers: 0,
+    wrongAnswers: 0,
+  });
   const [completionPercentage, setCompletionPercentage] = useState(0);
   const [completedLevels, setCompletedLevels] = useState({
     1: false,
@@ -257,13 +273,21 @@ export default function AdventureGame({ navigation, route }) {
       const stats = await LevelProgress.getUserStats();
       const completion = await LevelProgress.getCompletionPercentage();
 
+      // Debug logging
+      console.log("Loaded progress:", progress);
+      console.log("Level 1 progress:", progress.level1);
+      console.log("Level 2 progress:", progress.level2);
+      console.log("Level 3 progress:", progress.level3);
+      console.log("User stats:", stats.overall);
+      console.log("Completion percentage:", completion);
+
       setAllProgress(progress);
       setUserStats(stats.overall);
       setCompletionPercentage(completion);
       setCompletedLevels({
-        1: progress.level1.includes(stagesPerLevel[1]),
-        2: progress.level2.includes(stagesPerLevel[2]),
-        3: progress.level3.includes(stagesPerLevel[3]),
+        1: progress.level1.includes(3), // Changed to check for stage 3
+        2: progress.level2.includes(3), // Changed to check for stage 3
+        3: progress.level3.includes(3), // Changed to check for stage 3
       });
       setIsLoading(false);
 
@@ -334,40 +358,55 @@ export default function AdventureGame({ navigation, route }) {
     );
   };
 
-  const handleScroll = (event) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / (CARD_WIDTH + CARD_SPACING));
-    setActiveIndex(index);
+  const handleLeaderboards = () => {
+    setMenuOpen(false);
+    if (navigation) {
+      navigation.navigate("Leaderboard");
+    }
   };
 
-  const scrollToIndex = (index) => {
-    scrollViewRef.current?.scrollTo({
-      x: index * (CARD_WIDTH + CARD_SPACING),
-      animated: true,
-    });
-    setActiveIndex(index);
-  };
-
-  const handleCardPress = (level, index) => {
-    console.log("Attempting to navigate to level group:", level.levelGroup);
-
-    if (level.isUnlocked) {
-      setSelectedLevel(level.id);
-      scrollToIndex(index);
-
+  const handleLevelPress = (levelGroup) => {
+    console.log("Attempting to navigate to level group:", levelGroup);
+    if (isLevelGroupUnlocked(levelGroup)) {
       console.log("Level group unlocked, navigating...");
 
-      if (navigation) {
-        navigation.navigate("Dialogue", {
-          selectedCharacter: characterIndex,
-          dialogueText: level.dialogueText,
+      // Check if the level is already completed
+      const isCompleted = isLevelGroupCompleted(levelGroup);
+
+      const levelDialogues = {
+        1: {
+          dialogueText:
+            "These food trees dropped their slices! Let's put them together to make whole pizzas again!",
           subtext: "",
-          nextScreen: "MapLevels",
-          nextScreenParams: {
-            levelGroup: level.levelGroup,
+        },
+        2: {
+          dialogueText:
+            "Oh, no! this river is filled with potions! Let's clean it, by pouring substances. Let's add the right fractions to create a perfect cleaning substance!",
+          subtext: "",
+        },
+        3: {
+          dialogueText:
+            "Uh-oh…. The houses are still broken. To make the neighborhood whole again, we need to add dissimilar fractions.",
+          subtext: "",
+        },
+      };
+
+      if (navigation) {
+        // If level is completed, skip dialogue and go directly to MapLevels
+        if (isCompleted) {
+          navigation.navigate("MapLevels", {
+            levelGroup,
             selectedCharacter: characterIndex,
-          },
-        });
+          });
+        } else {
+          // If level is not completed, show dialogue first
+          navigation.navigate("Dialogue", {
+            selectedCharacter: characterIndex,
+            ...levelDialogues[levelGroup],
+            nextScreen: "MapLevels",
+            nextScreenParams: { levelGroup, selectedCharacter: characterIndex },
+          });
+        }
       } else {
         Alert.alert(`Level ${level.levelGroup}`, level.dialogueText);
       }
@@ -388,15 +427,69 @@ export default function AdventureGame({ navigation, route }) {
 
   function isLevelGroupCompleted(levelGroup) {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
-    return levelProgress.includes(stagesPerLevel[levelGroup]);
+    // A level group is completed when stage 3 is unlocked (meaning both stages 1 and 2 are done)
+    // stagesPerLevel[levelGroup] is 2, but we need to check for stage 3 being unlocked
+    return levelProgress.includes(stagesPerLevel[levelGroup] + 1);
   }
 
   function getCompletedStagesCount(levelGroup) {
     const levelProgress = allProgress[`level${levelGroup}`] || [];
+    const totalStages = stagesPerLevel[levelGroup]; // Always 2
+
     if (levelProgress.length === 0) return 0;
-    const maxUnlockedStage = Math.max(...levelProgress);
-    return Math.max(0, maxUnlockedStage - 1);
+
+    // Logic: If stage N+1 is unlocked, it means stage N was completed
+    // Stage 1 is always initially unlocked: [1]
+    // After completing stage 1: [1, 2] -> 1 stage completed
+    // After completing stage 2: [1, 2, 3] -> 2 stages completed
+
+    let completedCount = 0;
+
+    // Check if stage 2 is unlocked (means stage 1 completed)
+    if (levelProgress.includes(2)) {
+      completedCount = 1;
+    }
+
+    // Check if stage 3 is unlocked (means stage 2 completed)
+    if (levelProgress.includes(3)) {
+      completedCount = 2;
+    }
+
+    return completedCount;
   }
+
+  const getUnlockedLevelsCount = () => {
+    let count = 0;
+    if (isLevelGroupUnlocked(1)) count++;
+    if (isLevelGroupUnlocked(2)) count++;
+    if (isLevelGroupUnlocked(3)) count++;
+    return count;
+  };
+
+  // Get images safely
+  const bgImage = (() => {
+    try {
+      return require("../assets/bg1.png");
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  const profileImage = (() => {
+    try {
+      return require("../assets/profile.png");
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  const faviconImage = (() => {
+    try {
+      return require("../assets/favicon.png");
+    } catch (e) {
+      return null;
+    }
+  })();
 
   if (isLoading) {
     return null; // Return nothing while loading
@@ -461,12 +554,12 @@ export default function AdventureGame({ navigation, route }) {
           </View>
         </View>
 
-        {/* Burger Menu Modal */}
         <BurgerMenu
           visible={menuOpen}
           onClose={() => setMenuOpen(false)}
           onLogout={handleLogout}
           onReset={handleReset}
+          onLeaderboards={handleLeaderboards}
         />
 
         {/* Main Content */}

@@ -14,6 +14,7 @@ import Dialogue from './screens/Dialogue';
 import MapLevels from './screens/MapLevels';
 import Quiz from './screens/Quiz';
 import FinishScreen from './screens/FinishScreen';
+import Leaderboard from './screens/Leaderboards';
 
 const MusicContext = createContext();
 
@@ -122,6 +123,7 @@ export default function App() {
           <Stack.Screen name="MapLevels" component={MapLevels} />
           <Stack.Screen name="Quiz" component={Quiz} />
           <Stack.Screen name="FinishScreen" component={FinishScreen} />
+          <Stack.Screen name="Leaderboard" component={Leaderboard} />
         </Stack.Navigator>
         <StatusBar style="auto" />
       </NavigationContainer>

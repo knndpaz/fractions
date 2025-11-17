@@ -204,6 +204,29 @@ export default function CharacterSelect({ navigation }) {
     }, 200);
   };
 
+  const handleCharacterSelect = async (characterIndex) => {
+    try {
+      // Save to database
+      const userData = await AsyncStorage.getItem("userData");
+      const parsedUserData = JSON.parse(userData);
+
+      await supabase
+        .from("students")
+        .update({ character_index: characterIndex })
+        .eq("user_id", parsedUserData.id);
+
+      await AsyncStorage.setItem("character_index", String(characterIndex));
+
+      // Navigate to Dialogue with the selected character
+      navigation.navigate("Dialogue", {
+        selectedCharacter: characterIndex,
+        // This is the first time, so show the intro dialogue
+      });
+    } catch (error) {
+      console.error("Error saving character:", error);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar
