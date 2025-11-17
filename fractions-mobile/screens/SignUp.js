@@ -13,6 +13,7 @@ import {
   Platform,
   ScrollView,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../supabase";
 
 const { width, height } = Dimensions.get("window");

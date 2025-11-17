@@ -307,7 +307,19 @@ export default function AdventureGame({ navigation, route }) {
         text: "Logout",
         onPress: async () => {
           try {
+            // Clear local user data and cache
             await AsyncStorage.removeItem("userData");
+            await AsyncStorage.removeItem("hasLoggedInBefore");
+            await AsyncStorage.removeItem("character_index");
+            
+            // Clear local progress cache (will be reloaded from DB on next login)
+            await AsyncStorage.removeItem("levelProgress");
+            
+            // Sign out from Supabase
+            if (supabase) {
+              await supabase.auth.signOut();
+            }
+            
             if (navigation) {
               navigation.replace("Login");
             } else {

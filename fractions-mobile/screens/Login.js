@@ -246,11 +246,6 @@ export default function Login({ navigation }) {
       } else if (data?.user) {
         console.log("Login successful:", data.user.email);
 
-        // Check if this is a first-time login
-        const hasLoggedInBefore = await AsyncStorage.getItem(
-          "hasLoggedInBefore"
-        );
-
         // Store user data locally
         const userData = {
           id: data.user.id,

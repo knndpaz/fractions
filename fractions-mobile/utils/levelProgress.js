@@ -34,12 +34,57 @@ export const LevelProgress = {
     }
   },
 
-  // Ensure we can always read a valid progress object
+  // Get all progress from Supabase (database-first approach)
   getAllProgress: async () => {
     try {
+      const userId = await LevelProgress.getCurrentUserId();
+      
+      if (!userId || !DatabaseService?.getStudentProgress) {
+        // Fallback to local storage if no user or DB not available
+        const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
+        if (!raw) {
+          return BASELINE_PROGRESS;
+        }
+        const parsed = JSON.parse(raw);
+        return {
+          level1: Array.isArray(parsed.level1) ? parsed.level1 : [1],
+          level2: Array.isArray(parsed.level2) ? parsed.level2 : [],
+          level3: Array.isArray(parsed.level3) ? parsed.level3 : [],
+        };
+      }
+
+      // Fetch from database
+      const rows = await DatabaseService.getStudentProgress(userId);
+      const progress = { level1: [1], level2: [], level3: [] };
+
+      rows.forEach(row => {
+        const lg = Number(row.level_group);
+        if (lg >= 1 && lg <= 3) {
+          const currentStage = Math.max(1, Math.min(stagesPerLevel[lg], Number(row.current_stage || 1)));
+          const completedStages = Math.max(0, Math.min(stagesPerLevel[lg], Number(row.completed_stages || 0)));
+          
+          const unlocked = new Set();
+          // Add all stages up to current
+          for (let s = 1; s <= currentStage; s++) {
+            unlocked.add(s);
+          }
+          // Add completion marker if fully completed
+          if (completedStages >= stagesPerLevel[lg]) {
+            unlocked.add(stagesPerLevel[lg] + 1);
+          }
+          
+          progress[`level${lg}`] = Array.from(unlocked).sort((a, b) => a - b);
+        }
+      });
+
+      // Cache locally for offline access
+      await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(progress));
+      return progress;
+    } catch (e) {
+      console.warn('getAllProgress DB error, falling back to local:', e);
+      // Fallback to local storage
       const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
       if (!raw) {
-        await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(BASELINE_PROGRESS));
         return BASELINE_PROGRESS;
       }
       const parsed = JSON.parse(raw);
@@ -48,228 +93,250 @@ export const LevelProgress = {
         level2: Array.isArray(parsed.level2) ? parsed.level2 : [],
         level3: Array.isArray(parsed.level3) ? parsed.level3 : [],
       };
-    } catch {
-      await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(BASELINE_PROGRESS));
-      return BASELINE_PROGRESS;
     }
   },
 
-  // Persist local progress
+  // Persist local progress (cache only)
   setAllProgress: async (obj) => {
     await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(obj));
   },
 
-  // Reset progress (local + DB). If levelGroup provided, only reset that group.
-  // Return the new local progress object so callers can update UI immediately.
+  // Reset progress (DB + local). If levelGroup provided, only reset that group.
   resetProgress: async (levelGroup) => {
     try {
-      // Normalize and validate group
+      const userId = await LevelProgress.getCurrentUserId();
       const lg = Number(levelGroup);
       const isValidGroup = Number.isInteger(lg) && lg >= 1 && lg <= 3;
 
-      // Local reset
+      // Reset in database first
+      if (userId && DatabaseService?.clearStudentProgress) {
+        try {
+          await DatabaseService.clearStudentProgress(userId, isValidGroup ? lg : undefined);
+          console.log('[LevelProgress] Database reset successful');
+        } catch (e) {
+          console.warn('[LevelProgress] Database reset failed:', e);
+        }
+      }
+
+      // Reset local cache
       const current = await LevelProgress.getAllProgress();
       let next = { ...current };
 
       if (isValidGroup) {
-        next[`level${lg}`] = [1];
+        next[`level${lg}`] = lg === 1 ? [1] : [];
       } else {
         next = { ...BASELINE_PROGRESS };
       }
 
       await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(next));
-
-      // Best-effort DB reset (if available)
-      try {
-        const { data } = await supabase.auth.getUser();
-        const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
-        if (userId && DatabaseService?.clearStudentProgress) {
-          await DatabaseService.clearStudentProgress(userId, isValidGroup ? lg : undefined);
+      
+      // Clear local answer stats
+      for (let levelGroup = 1; levelGroup <= 3; levelGroup++) {
+        for (let stage = 1; stage <= 2; stage++) {
+          await AsyncStorage.removeItem(`@answer_stats_${levelGroup}_${stage}`);
         }
-      } catch {
-        // ignore server errors during reset
       }
 
       return next;
-    } catch {
+    } catch (e) {
+      console.error('[LevelProgress] Reset failed:', e);
       return { ...BASELINE_PROGRESS };
     }
   },
 
-  // Existing API used by MapLevels (returns unlocked stages list)
+  // Get completed levels from Supabase (database-first)
   getCompletedLevels: async (levelGroup = 1) => {
-    const lg = Number(levelGroup) || 1;
+    try {
+      const lg = Number(levelGroup) || 1;
+      const userId = await LevelProgress.getCurrentUserId();
 
-    // Start from local state
-    const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
-    const all = raw ? JSON.parse(raw) : { level1: [1], level2: [], level3: [] };
-    const localArr = Array.isArray(all[`level${lg}`]) ? all[`level${lg}`] : [];
-
-    // Only Level 1 should auto-unlock stage 1
-    const ensuredLocal =
-      lg === 1
-        ? uniqSorted((localArr.includes(1) ? localArr : [1, ...localArr]))
-        : uniqSorted(localArr); // do NOT force stage 1 for level 2/3
-
-    // Fresh reset short-circuit:
-    // - Level 1: [1] only
-    if (lg === 1 && ensuredLocal.length === 1 && ensuredLocal[0] === 1) {
-      // Check DB first before assuming it's fresh
-      try {
-        const { data } = await supabase.auth.getUser();
-        const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
-        if (userId && DatabaseService?.getStudentProgress) {
-          const rows = await DatabaseService.getStudentProgress(userId);
-          const row = Array.isArray(rows) ? rows.find(r => Number(r.level_group) === lg) : null;
-          if (row && Number(row.completed_stages) > 0) {
-            // Not fresh - has DB progress
-          } else {
-            return [1];
-          }
-        } else {
-          return [1];
-        }
-      } catch {
-        return [1];
+      if (!userId || !DatabaseService?.getStudentProgress) {
+        // Fallback to local storage
+        const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
+        const all = raw ? JSON.parse(raw) : { level1: [1], level2: [], level3: [] };
+        const localArr = Array.isArray(all[`level${lg}`]) ? all[`level${lg}`] : [];
+        return lg === 1 ? uniqSorted(localArr.includes(1) ? localArr : [1, ...localArr]) : uniqSorted(localArr);
       }
-    }
-    // - Level 2/3: empty means locked (unless DB says otherwise)
-    if (lg !== 1 && ensuredLocal.length === 0) {
-      // Check DB before assuming locked
-      try {
-        const { data } = await supabase.auth.getUser();
-        const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
-        if (userId && DatabaseService?.getStudentProgress) {
-          const rows = await DatabaseService.getStudentProgress(userId);
-          const row = Array.isArray(rows) ? rows.find(r => Number(r.level_group) === lg) : null;
-          if (!row || Number(row.current_stage) <= 1) {
-            return [];
-          }
-          // Has DB progress, continue to merge
+
+      // Fetch from database
+      const rows = await DatabaseService.getStudentProgress(userId);
+      const row = Array.isArray(rows) ? rows.find(r => Number(r.level_group) === lg) : null;
+
+      if (!row) {
+        // No progress record for this level yet
+        if (lg === 1) {
+          // Level 1 always has stage 1 unlocked
+          return [1];
         } else {
+          // Check if previous level is completed
+          const prevRows = rows.find(r => Number(r.level_group) === lg - 1);
+          if (!prevRows || Number(prevRows.completed_stages) < stagesPerLevel[lg - 1]) {
+            return []; // Previous level not completed, this level is locked
+          }
+          return [1]; // Previous level completed, unlock stage 1
+        }
+      }
+
+      // Build unlocked stages from database record
+      const currentStage = Math.max(1, Math.min(stagesPerLevel[lg], Number(row.current_stage || 1)));
+      const completedStages = Math.max(0, Math.min(stagesPerLevel[lg], Number(row.completed_stages || 0)));
+      
+      const unlocked = new Set();
+      
+      // Add all stages up to current
+      for (let s = 1; s <= currentStage; s++) {
+        unlocked.add(s);
+      }
+      
+      // Add all completed stages
+      for (let s = 1; s <= completedStages; s++) {
+        unlocked.add(s);
+      }
+      
+      // If all stages completed, add completion marker
+      if (completedStages >= stagesPerLevel[lg]) {
+        unlocked.add(stagesPerLevel[lg] + 1);
+      }
+
+      // Ensure progression: for levels > 1, don't unlock if previous level not completed
+      if (lg > 1) {
+        const prevRow = rows.find(r => Number(r.level_group) === lg - 1);
+        if (!prevRow || Number(prevRow.completed_stages) < stagesPerLevel[lg - 1]) {
+          unlocked.clear();
           return [];
         }
-      } catch {
-        return [];
       }
-    }
 
-    // Merge DB-driven info (current_stage/completed_stages)
-    const unlocked = new Set(ensuredLocal);
-    try {
-      const { data } = await supabase.auth.getUser();
-      const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
-      if (userId && DatabaseService?.getStudentProgress) {
-        const rows = await DatabaseService.getStudentProgress(userId);
-        const row = Array.isArray(rows) ? rows.find(r => Number(r.level_group) === lg) : null;
-        if (row) {
-          const currentStage = Math.max(1, Math.min(stagesPerLevel[lg], Number(row.current_stage || 1)));
-          const completedStages = Math.max(0, Math.min(stagesPerLevel[lg], Number(row.completed_stages || 0)));
-          
-          // Add all unlocked stages up to current
-          for (let s = 1; s <= currentStage; s++) {
-            unlocked.add(s);
-          }
-          
-          // Add all completed stages
-          for (let s = 1; s <= completedStages; s++) {
-            unlocked.add(s);
-          }
-          
-          // If all stages are completed, add the completion marker (stage 3)
-          if (completedStages >= stagesPerLevel[lg]) {
-            unlocked.add(stagesPerLevel[lg] + 1); // Add completion marker
-          }
-        }
-      }
+      const result = uniqSorted(Array.from(unlocked));
+
+      // Cache locally
+      const all = await LevelProgress.getAllProgress();
+      all[`level${lg}`] = result;
+      await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(all));
+
+      return result;
     } catch (e) {
-      console.warn('getCompletedLevels DB merge skipped:', e?.message || e);
+      console.warn('[LevelProgress] getCompletedLevels DB error, falling back to local:', e);
+      // Fallback to local storage
+      const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
+      const all = raw ? JSON.parse(raw) : { level1: [1], level2: [], level3: [] };
+      const localArr = Array.isArray(all[`level${lg}`]) ? all[`level${lg}`] : [];
+      return lg === 1 ? uniqSorted(localArr.includes(1) ? localArr : [1, ...localArr]) : uniqSorted(localArr);
     }
-
-    // Ensure progression: for levels > 1, don't unlock any stages if previous level is not completed
-    if (lg > 1) {
-      const prevProgress = await LevelProgress.getCompletedLevels(lg - 1);
-      const prevCompleted = prevProgress.includes(stagesPerLevel[lg - 1] + 1); // Check for completion marker
-      if (!prevCompleted) {
-        unlocked.clear();
-      }
-    }
-
-    const result = uniqSorted(Array.from(unlocked));
-
-    // Persist merged if different
-    if (JSON.stringify(result) !== JSON.stringify(localArr)) {
-      const next = { ...all, [`level${lg}`]: result };
-      await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(next));
-    }
-
-    return result;
   },
 
   isLevelUnlocked: (stage, unlockedList) => {
     return Array.isArray(unlockedList) && unlockedList.includes(stage);
   },
 
-  // New: compute completion percentage for a level group (DB-first, fallback local)
-  getCompletionPercentage: async (levelGroup = 1) => {
+  // New: compute completion percentage for a level group (DB-first)
+  getCompletionPercentage: async (levelGroup) => {
     try {
       const userId = await LevelProgress.getCurrentUserId();
 
-      // DB path
+      // If levelGroup is specified, get percentage for that level only
+      if (levelGroup) {
+        const lg = Number(levelGroup);
+        if (userId && DatabaseService?.getStudentProgress) {
+          try {
+            const rows = await DatabaseService.getStudentProgress(userId);
+            const row = rows?.find(r => Number(r.level_group) === lg);
+            if (row) {
+              const pct = Number(row.completion_rate);
+              if (!Number.isNaN(pct) && pct >= 0) return pct;
+              const completed = Number(row.completed_stages ?? 0);
+              return Math.round((Math.min(stagesPerLevel[lg], Math.max(0, completed)) / stagesPerLevel[lg]) * 100);
+            }
+          } catch {
+            // fall through to local
+          }
+        }
+
+        // Local fallback
+        const all = await LevelProgress.getAllProgress();
+        const arr = all[`level${lg}`] || [];
+        const maxUnlocked = arr.length ? Math.max(...arr) : 1;
+        const completedLocal = Math.max(0, Math.min(stagesPerLevel[lg], maxUnlocked - 1));
+        return Math.round((completedLocal / stagesPerLevel[lg]) * 100);
+      }
+
+      // Overall completion across all levels (from database)
       if (userId && DatabaseService?.getStudentProgress) {
         try {
           const rows = await DatabaseService.getStudentProgress(userId);
-          const row = rows?.find(r => Number(r.level_group) === Number(levelGroup));
-          if (row) {
-            const pct = Number(row.completion_rate);
-            if (!Number.isNaN(pct) && pct >= 0) return pct;
-            const completed = Number(row.completed_stages ?? 0);
-            return Math.round((Math.min(stagesPerLevel[levelGroup], Math.max(0, completed)) / stagesPerLevel[levelGroup]) * 100);
-          }
-        } catch {
-          // fall through to local
+          let totalCompleted = 0;
+          const totalStages = 6; // 3 levels × 2 stages each
+
+          rows.forEach(row => {
+            const lg = Number(row.level_group);
+            if (lg >= 1 && lg <= 3) {
+              const completed = Math.min(stagesPerLevel[lg], Number(row.completed_stages || 0));
+              totalCompleted += completed;
+            }
+          });
+
+          return Math.round((totalCompleted / totalStages) * 100);
+        } catch (e) {
+          console.warn('[LevelProgress] getCompletionPercentage DB error:', e);
         }
       }
 
-      // Local fallback
-      const all = await LevelProgress.getAllProgress();
-      const arr = all[`level${levelGroup}`] || [];
-      const maxUnlocked = arr.length ? Math.max(...arr) : 1; // unlocked may include next stage
-      const completedLocal = Math.max(0, Math.min(stagesPerLevel[levelGroup], maxUnlocked - 1));
-      return Math.round((completedLocal / stagesPerLevel[levelGroup]) * 100);
-    } catch {
+      // Local fallback for overall completion
+      let completedStages = 0;
+      const totalStages = 6;
+
+      for (let levelGroup = 1; levelGroup <= 3; levelGroup++) {
+        const completedLevels = await LevelProgress.getCompletedLevels(levelGroup);
+        if (completedLevels.includes(2)) completedStages += 1;
+        if (completedLevels.includes(3)) completedStages += 1;
+      }
+
+      return Math.round((completedStages / totalStages) * 100);
+    } catch (e) {
+      console.error('[LevelProgress] getCompletionPercentage error:', e);
       return 0;
     }
   },
 
-  // Update unlocks locally and sync DB after a stage result
+  // Update unlocks in database and sync local cache
   completeLevel: async (levelGroup = 1, stage = 1, isCorrect = false, timeRemaining = 0) => {
     try {
       const lg = Number(levelGroup) || 1;
       const st = clampStage(stage);
-      const maxStage = stagesPerLevel[lg];
+      const userId = await LevelProgress.getCurrentUserId();
 
-      // Local first for responsive UI
+      // Update database first (source of truth)
+      if (userId && DatabaseService?.updateStudentProgress) {
+        try {
+          await DatabaseService.updateStudentProgress(userId, lg, st, isCorrect, timeRemaining);
+          console.log('[LevelProgress] Database updated successfully');
+        } catch (e) {
+          console.warn('[LevelProgress] Database update failed:', e);
+        }
+      }
+
+      // Update local cache for offline/immediate UI
       const raw = await AsyncStorage.getItem(LEVEL_PROGRESS_KEY);
       const all = raw ? JSON.parse(raw) : { level1: [1], level2: [], level3: [] };
       const key = `level${lg}`;
       const current = Array.isArray(all[key]) ? all[key] : [];
       const updated = new Set(current);
+      const maxStage = stagesPerLevel[lg];
+      
       updated.add(1);
       updated.add(st);
       
-      // If this is correct and not the final stage, unlock next stage
+      // If correct and not final stage, unlock next stage
       if (isCorrect && st < maxStage) {
         updated.add(st + 1);
       }
       
-      // If this is the final stage (stage 2), add a marker (stage 3) to indicate completion
-      // This is only for tracking completion, not an actual playable stage
+      // If final stage completed, add completion marker
       if (isCorrect && st === maxStage) {
-        updated.add(maxStage + 1); // Add stage 3 as a completion marker
+        updated.add(maxStage + 1);
       }
       
-      // Unlock next level group stage 1 if final stage of current level completed
+      // Unlock next level's stage 1 if current level completed
       if (st === maxStage && lg < 3 && isCorrect) {
         const nextKey = `level${lg + 1}`;
         const nextArr = Array.isArray(all[nextKey]) ? all[nextKey] : [];
@@ -281,21 +348,10 @@ export const LevelProgress = {
       const localNext = { ...all, [key]: uniqSorted(Array.from(updated)) };
       await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(localNext));
 
-      // Best-effort DB update
-      try {
-        const { data } = await supabase.auth.getUser();
-        const userId = data?.user?.id || (await AsyncStorage.getItem(USER_ID_KEY));
-        if (userId && DatabaseService?.updateStudentProgress) {
-          await DatabaseService.updateStudentProgress(userId, lg, st, isCorrect, timeRemaining);
-        }
-      } catch (e) {
-        console.warn('DB progress update failed (ignored):', e?.message || e);
-      }
-
-      // Recompute merged unlocks and return
+      // Return refreshed data from database
       return await LevelProgress.getCompletedLevels(lg);
     } catch (e) {
-      console.error('completeLevel failed:', e);
+      console.error('[LevelProgress] completeLevel failed:', e);
       return null;
     }
   },
@@ -337,14 +393,46 @@ export const LevelProgress = {
   },
 
   /**
-   * Get overall user statistics with accurate calculations
+   * Get overall user statistics with accurate calculations (from database)
    */
   async getUserStats() {
     try {
+      const userId = await this.getCurrentUserId();
+
+      // Fetch from database first
+      if (userId && DatabaseService?.getStudentProgress) {
+        try {
+          const rows = await DatabaseService.getStudentProgress(userId);
+          
+          let totalCorrect = 0;
+          let totalAttempts = 0;
+
+          rows.forEach(row => {
+            totalCorrect += Number(row.correct_answers || 0);
+            totalAttempts += Number(row.total_attempts || 0);
+          });
+
+          const accuracy = totalAttempts > 0 
+            ? Math.round((totalCorrect / totalAttempts) * 100) 
+            : 0;
+
+          return {
+            overall: {
+              accuracy,
+              totalAttempts,
+              correctAnswers: totalCorrect,
+              wrongAnswers: totalAttempts - totalCorrect,
+            },
+          };
+        } catch (e) {
+          console.warn('[LevelProgress] getUserStats DB error, falling back to local:', e);
+        }
+      }
+
+      // Local fallback
       let totalCorrect = 0;
       let totalWrong = 0;
 
-      // Collect stats from all levels and stages
       for (let levelGroup = 1; levelGroup <= 3; levelGroup++) {
         for (let stage = 1; stage <= 2; stage++) {
           const stats = await this.getAnswerStats(levelGroup, stage);
@@ -380,46 +468,25 @@ export const LevelProgress = {
   },
 
   /**
-   * Get completion percentage based on actually completed stages
-   */
-  async getCompletionPercentage() {
-    try {
-      let completedStages = 0;
-      const totalStages = 6; // 3 levels × 2 stages each
-
-      for (let levelGroup = 1; levelGroup <= 3; levelGroup++) {
-        const completedLevels = await this.getCompletedLevels(levelGroup);
-        
-        // Count completed stages (stage N is completed if stage N+1 is unlocked)
-        if (completedLevels.includes(2)) {
-          completedStages += 1; // Stage 1 completed
-        }
-        if (completedLevels.includes(3)) {
-          completedStages += 1; // Stage 2 completed
-        }
-      }
-
-      const percentage = Math.round((completedStages / totalStages) * 100);
-      console.log(`[LevelProgress] Completion: ${completedStages}/${totalStages} stages = ${percentage}%`);
-      
-      return percentage;
-    } catch (error) {
-      console.error('[LevelProgress] Failed to get completion percentage:', error);
-      return 0;
-    }
-  },
-
-  /**
    * Reset all progress including answer statistics
    */
   async resetProgress() {
     try {
       console.log('[LevelProgress] Starting full reset...');
+      const userId = await this.getCurrentUserId();
       
-      // Reset level progress
-      await AsyncStorage.setItem('@level_progress_1', JSON.stringify([1]));
-      await AsyncStorage.setItem('@level_progress_2', JSON.stringify([]));
-      await AsyncStorage.setItem('@level_progress_3', JSON.stringify([]));
+      // Reset in database
+      if (userId && DatabaseService?.clearStudentProgress) {
+        try {
+          await DatabaseService.clearStudentProgress(userId);
+          console.log('[LevelProgress] Database reset successful');
+        } catch (e) {
+          console.warn('[LevelProgress] Database reset failed:', e);
+        }
+      }
+      
+      // Reset local cache
+      await AsyncStorage.setItem(LEVEL_PROGRESS_KEY, JSON.stringify(BASELINE_PROGRESS));
       
       // Reset answer statistics
       for (let levelGroup = 1; levelGroup <= 3; levelGroup++) {
