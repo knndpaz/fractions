@@ -584,7 +584,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           <div className="relative flex flex-col sm:flex-row items-center justify-between">
             <div className="text-center sm:text-left mb-4 sm:mb-0">
               <h1 className="text-2xl sm:text-4xl font-bold text-white mb-2">
-                WELCOME BACK, JUSTINE! 👋
+                WELCOME BACK, {(currentUser?.user_metadata?.full_name || currentUser?.email || 'USER').toUpperCase()}! 👋
               </h1>
               <p className="text-orange-100 text-sm sm:text-lg">
                 Manage your sections and students. All data is synced with the
