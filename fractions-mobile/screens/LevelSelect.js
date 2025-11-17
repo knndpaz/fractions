@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LevelProgress } from "../utils/levelProgress";
+import { useMusic } from "../App";
 
 // Conditional import for supabase (only if available)
 let supabase;
@@ -92,7 +93,13 @@ const BurgerMenu = ({
             <Text style={styles.menuItemText}>Reset Progress</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.menuItem} onPress={onLogout}>
+          <TouchableOpacity 
+            style={styles.menuItem} 
+            onPress={() => {
+              console.log("[BurgerMenu] Logout button pressed");
+              onLogout();
+            }}
+          >
             <Text style={styles.menuItemIcon}>⚡</Text>
             <Text style={styles.menuItemText}>Logout</Text>
           </TouchableOpacity>
@@ -104,6 +111,7 @@ const BurgerMenu = ({
 
 export default function AdventureGame({ navigation, route }) {
   const { selectedCharacter: routeSelectedCharacter } = route?.params || {};
+  const musicContext = useMusic();
   const [menuOpen, setMenuOpen] = useState(false);
   const [musicOn, setMusicOn] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -130,6 +138,7 @@ export default function AdventureGame({ navigation, route }) {
     3: false,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const scrollViewRef = useRef(null);
 
@@ -300,40 +309,114 @@ export default function AdventureGame({ navigation, route }) {
   };
 
   const handleLogout = () => {
+    console.log("[Logout] handleLogout called");
     setMenuOpen(false);
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Logout",
-        onPress: async () => {
-          try {
-            // Clear local user data and cache
-            await AsyncStorage.removeItem("userData");
-            await AsyncStorage.removeItem("hasLoggedInBefore");
-            await AsyncStorage.removeItem("character_index");
-            
-            // Clear local progress cache (will be reloaded from DB on next login)
-            await AsyncStorage.removeItem("levelProgress");
-            
-            // Sign out from Supabase
-            if (supabase) {
-              await supabase.auth.signOut();
-            }
-            
-            if (navigation) {
-              navigation.replace("Login");
-            } else {
-              // For web fallback
-              if (typeof window !== "undefined") {
-                window.location.reload();
+    setShowLogoutConfirm(true);
+  };
+
+  const confirmLogout = async () => {
+    console.log("[Logout] User confirmed logout");
+    setShowLogoutConfirm(false);
+    setMenuOpen(false);
+    
+    try {
+      console.log("[Logout] Starting logout process...");
+      
+      // Stop background music if available
+      if (musicContext?.backgroundMusic) {
+        console.log("[Logout] Stopping background music...");
+        try {
+          await musicContext.backgroundMusic.setIsLoopingAsync(false);
+          await musicContext.backgroundMusic.stopAsync();
+          await musicContext.backgroundMusic.unloadAsync();
+          console.log("[Logout] Background music stopped");
+        } catch (musicError) {
+          console.warn("[Logout] Error stopping music:", musicError);
+        }
+      }
+
+      // Stop battle music if available
+      if (musicContext?.battleMusic) {
+        console.log("[Logout] Stopping battle music...");
+        try {
+          await musicContext.battleMusic.setIsLoopingAsync(false);
+          await musicContext.battleMusic.stopAsync();
+          await musicContext.battleMusic.unloadAsync();
+          console.log("[Logout] Battle music stopped");
+        } catch (musicError) {
+          console.warn("[Logout] Error stopping battle music:", musicError);
+        }
+      }
+      
+      // Sign out from Supabase first
+      if (supabase) {
+        console.log("[Logout] Signing out from Supabase...");
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+          console.error("[Logout] Supabase signOut error:", error);
+        } else {
+          console.log("[Logout] Supabase signOut successful");
+        }
+      }
+      
+      // Clear all local user data and cache
+      console.log("[Logout] Clearing local storage...");
+      await AsyncStorage.multiRemove([
+        "userData",
+        "hasLoggedInBefore",
+        "character_index",
+        "levelProgress",
+      ]);
+      
+      // Optional: Clear answer stats for privacy
+      for (let levelGroup = 1; levelGroup <= 3; levelGroup++) {
+        for (let stage = 1; stage <= 2; stage++) {
+          await AsyncStorage.removeItem(`@answer_stats_${levelGroup}_${stage}`);
+        }
+      }
+      
+      console.log("[Logout] Logout successful, navigating to Login...");
+      
+      // Navigate to login screen with a small delay to ensure cleanup completes
+      setTimeout(() => {
+        if (navigation) {
+          console.log("[Logout] Navigating to Login screen...");
+          navigation.reset({
+            index: 0,
+            routes: [{ name: "Login" }],
+          });
+        } else {
+          console.warn("[Logout] Navigation not available");
+        }
+      }, 100);
+      
+    } catch (error) {
+      console.error("[Logout] Error during logout:", error);
+      Alert.alert(
+        "Logout Error",
+        "An error occurred while logging out. Please try again.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              // Try to navigate to login anyway
+              if (navigation) {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: "Login" }],
+                });
               }
-            }
-          } catch (error) {
-            console.error("Error logging out:", error);
-          }
-        },
-      },
-    ]);
+            },
+          },
+        ]
+      );
+    }
+  };
+
+  const cancelLogout = () => {
+    console.log("[Logout] User cancelled");
+    setShowLogoutConfirm(false);
+    setMenuOpen(false);
   };
 
   const handleReset = async () => {
@@ -793,6 +876,47 @@ export default function AdventureGame({ navigation, route }) {
             </View>
           </View>
         </View>
+
+        {/* Logout Confirmation Modal - Rendered last to appear on top */}
+        <Modal
+          transparent={true}
+          visible={showLogoutConfirm}
+          animationType="fade"
+          onRequestClose={() => setShowLogoutConfirm(false)}
+          statusBarTranslucent={true}
+        >
+          <TouchableOpacity 
+            style={styles.logoutModalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowLogoutConfirm(false)}
+          >
+            <TouchableOpacity 
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.logoutModalContainer}>
+                <Text style={styles.logoutModalTitle}>Logout</Text>
+                <Text style={styles.logoutModalMessage}>
+                  Are you sure you want to logout?
+                </Text>
+                <View style={styles.logoutModalButtons}>
+                  <TouchableOpacity
+                    style={[styles.logoutModalButton, styles.cancelButton]}
+                    onPress={cancelLogout}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.logoutModalButton, styles.confirmButton]}
+                    onPress={confirmLogout}
+                  >
+                    <Text style={styles.confirmButtonText}>Logout</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
       </View>
     </View>
   );
@@ -1234,5 +1358,64 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "600",
     color: "#666",
+  },
+  logoutModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  logoutModalContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    width: width * 0.8,
+    maxWidth: 400,
+    alignItems: "center",
+    elevation: 999,
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  logoutModalTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#333",
+    marginBottom: 12,
+  },
+  logoutModalMessage: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  logoutModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  logoutModalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    minWidth: 100,
+  },
+  cancelButton: {
+    backgroundColor: "#e0e0e0",
+  },
+  confirmButton: {
+    backgroundColor: "#ff4444",
+  },
+  cancelButtonText: {
+    color: "#333",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  confirmButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });

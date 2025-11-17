@@ -111,7 +111,7 @@ export default function App() {
   }
 
   return (
-    <MusicContext.Provider value={{ startBackgroundMusic, switchToBattleMusic, switchToBackgroundMusic, currentMusic }}>
+    <MusicContext.Provider value={{ startBackgroundMusic, switchToBattleMusic, switchToBackgroundMusic, currentMusic, backgroundMusic, battleMusic }}>
       <NavigationContainer>
         <Stack.Navigator initialRouteName="Home" screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Home" component={HomePage} />
