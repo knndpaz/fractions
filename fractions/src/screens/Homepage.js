@@ -53,6 +53,9 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
   ]);
   const [sameSection, setSameSection] = useState(false);
 
+  // Teacher data
+  const [teacherData, setTeacherData] = useState(null);
+
   // Show notification helper
   const showNotification = (message, type = "success") => {
     setNotification({ message, type });
@@ -63,6 +66,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
   useEffect(() => {
     loadSections();
     loadStudents();
+    loadTeacherData();
   }, [currentUser?.id]);
 
   // Load sections from Supabase (ALL sections, not scoped to teacher)
@@ -101,6 +105,24 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
       }
     } catch (error) {
       console.error("Error loading students:", error);
+    }
+  };
+
+  // Load teacher data
+  const loadTeacherData = async () => {
+    if (!currentUser?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from("teachers")
+        .select("*")
+        .eq("id", currentUser.id)
+        .single();
+      
+      if (!error && data) {
+        setTeacherData(data);
+      }
+    } catch (error) {
+      console.error("Error loading teacher data:", error);
     }
   };
 
@@ -474,6 +496,11 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
     }
   };
 
+  // Helper to get display name
+  const getDisplayName = () => {
+    return teacherData?.full_name || teacherData?.username || currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.username || 'User';
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Notification Toast */}
@@ -536,12 +563,12 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
                 >
                   <div className="text-right hidden sm:block">
                     <div className="text-white font-semibold text-sm">
-                      {currentUser?.user_metadata?.full_name || currentUser?.email || 'User'}
+                      {getDisplayName()}
                     </div>
                     <div className="text-orange-100 text-xs">Admin</div>
                   </div>
                   <img
-                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser?.user_metadata?.full_name || 'User')}&background=F68C2E&color=fff`}
+                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(getDisplayName())}&background=F68C2E&color=fff`}
                     alt="User"
                     className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white"
                   />
@@ -585,7 +612,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           <div className="relative flex flex-col sm:flex-row items-center justify-between">
             <div className="text-center sm:text-left mb-4 sm:mb-0">
               <h1 className="text-2xl sm:text-4xl font-bold text-white mb-2">
-                WELCOME BACK, {(currentUser?.user_metadata?.full_name || currentUser?.email || 'USER').toUpperCase()}! 👋
+                WELCOME BACK, {getDisplayName().toUpperCase()}! 👋
               </h1>
               <p className="text-orange-100 text-sm sm:text-lg">
                 Manage your sections and students. All data is synced with the

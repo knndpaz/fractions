@@ -23,12 +23,11 @@ export default function AdminLogin({ onLoggedIn }) {
       if (error) {
         alert(error.message);
       } else {
-        // session is handled in App via onAuthStateChange
-        onLoggedIn && onLoggedIn(data.user);
-
         const {
           data: { user },
         } = await supabase.auth.getUser();
+        
+        // Fetch teacher data from database
         const { data: teacher } = await supabase
           .from("teachers")
           .select("*")
@@ -50,6 +49,18 @@ export default function AdminLogin({ onLoggedIn }) {
             .update({ last_login: new Date().toISOString() })
             .eq("id", user.id);
         }
+
+        // Pass user with teacher data merged
+        const enrichedUser = {
+          ...user,
+          user_metadata: {
+            ...user.user_metadata,
+            full_name: teacher?.full_name || user.user_metadata?.full_name,
+            username: teacher?.username || user.user_metadata?.username,
+          }
+        };
+        
+        onLoggedIn && onLoggedIn(enrichedUser);
       }
     } catch (err) {
       alert("Login failed. Please try again.");
