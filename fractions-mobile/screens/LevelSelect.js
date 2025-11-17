@@ -133,17 +133,51 @@ export default function AdventureGame({ navigation, route }) {
 
   const scrollViewRef = useRef(null);
 
+  // Animation for character glow
+  const glowAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Pulsing glow animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(glowAnim, {
+          toValue: 0,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  const glowScale = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.15],
+  });
+
+  const glowOpacity = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.5, 0.9],
+  });
+
   // Get character images dynamically
   const getCharacterImage = (index) => {
     try {
       const images = [
-        require("../assets/player1.png"),
-        require("../assets/player2.png"),
-        require("../assets/player3.png"),
-        require("../assets/player4.png"),
+        require("../assets/chara1.png"),
+        require("../assets/chara2.png"),
+        require("../assets/chara3.png"),
+        require("../assets/chara4.png"),
+        require("../assets/chara5.png"),
+        require("../assets/chara6.png"),
       ];
       return images[index] || images[0];
     } catch (e) {
+      console.log("Error loading character image:", e);
       return null;
     }
   };
@@ -241,6 +275,7 @@ export default function AdventureGame({ navigation, route }) {
       console.log("Level 3 progress:", progress.level3);
       console.log("User stats:", stats.overall);
       console.log("Completion percentage:", completion);
+      console.log("Character Index:", routeSelectedCharacter);
 
       setAllProgress(progress);
       setUserStats(stats.overall);
@@ -451,6 +486,7 @@ export default function AdventureGame({ navigation, route }) {
       isCompleted: completedLevels[1],
       completedStages: getCompletedStagesCount(1),
       backgroundImage: getLevelBackgroundImage(1),
+      glowColors: ["#4ade80", "#ffa75b"], // Green and Orange glow
     },
     {
       id: 2,
@@ -461,6 +497,7 @@ export default function AdventureGame({ navigation, route }) {
       isCompleted: completedLevels[2],
       completedStages: getCompletedStagesCount(2),
       backgroundImage: getLevelBackgroundImage(2),
+      glowColors: ["#f9a8d4", "#93c5fd"], // Pink and Blue pastel glow
     },
     {
       id: 3,
@@ -471,6 +508,7 @@ export default function AdventureGame({ navigation, route }) {
       isCompleted: completedLevels[3],
       completedStages: getCompletedStagesCount(3),
       backgroundImage: getLevelBackgroundImage(3),
+      glowColors: ["#ef4444", "#ffa75b"], // Red and Orange glow
     },
   ];
 
@@ -551,12 +589,24 @@ export default function AdventureGame({ navigation, route }) {
           {/* Character Section */}
           <View style={styles.characterSection}>
             <View style={styles.characterImageContainer}>
-              {getCharacterImage(characterIndex) && (
+              {/* Animated Glowing Circle */}
+              <Animated.View
+                style={[
+                  styles.characterGlow,
+                  {
+                    transform: [{ scale: glowScale }],
+                    opacity: glowOpacity,
+                  },
+                ]}
+              />
+              {getCharacterImage(characterIndex) ? (
                 <Image
                   source={getCharacterImage(characterIndex)}
                   style={styles.characterImage}
                   resizeMode="contain"
                 />
+              ) : (
+                <Text style={styles.characterPlaceholder}>No Character</Text>
               )}
             </View>
             <Text style={styles.playerName}>
@@ -604,6 +654,9 @@ export default function AdventureGame({ navigation, route }) {
                       style={[
                         styles.levelCard,
                         isActive && styles.levelCardActive,
+                        isActive && {
+                          transform: [{ scale: 1.05 }],
+                        },
                         isSelected && styles.levelCardSelected,
                         !level.isUnlocked && styles.levelCardLocked,
                       ]}
@@ -611,8 +664,34 @@ export default function AdventureGame({ navigation, route }) {
                       activeOpacity={level.isUnlocked ? 0.8 : 1}
                       disabled={!level.isUnlocked}
                     >
-                      {/* Background Image */}
-                      {level.backgroundImage && (
+                      {/* Gradient Glowing Border Effect */}
+                      {isActive && level.isUnlocked && (
+                        <>
+                          <View
+                            style={[
+                              styles.glowBorder,
+                              styles.glowBorderOuter,
+                              {
+                                borderColor: level.glowColors[0],
+                                shadowColor: level.glowColors[0],
+                              },
+                            ]}
+                          />
+                          <View
+                            style={[
+                              styles.glowBorder,
+                              styles.glowBorderInner,
+                              {
+                                borderColor: level.glowColors[1],
+                                shadowColor: level.glowColors[1],
+                              },
+                            ]}
+                          />
+                        </>
+                      )}
+
+                      {/* Background Image - Only visible if unlocked */}
+                      {level.backgroundImage && level.isUnlocked && (
                         <Image
                           source={level.backgroundImage}
                           style={styles.cardBackgroundImage}
@@ -620,42 +699,47 @@ export default function AdventureGame({ navigation, route }) {
                         />
                       )}
 
-                      {/* Lock Overlay */}
+                      {/* Lock Overlay - Full mystery */}
                       {!level.isUnlocked && (
                         <View style={styles.lockOverlay}>
                           <Text style={styles.lockIcon}>🔒</Text>
                           <Text style={styles.lockText}>Locked</Text>
+                          <Text style={styles.lockSubtext}>
+                            Complete previous level
+                          </Text>
                         </View>
                       )}
 
-                      {/* Card Content */}
-                      <View style={styles.cardContent}>
-                        <View style={styles.difficultyBadge}>
-                          <Text style={styles.difficultyText}>
-                            {level.difficulty}
-                          </Text>
+                      {/* Card Content - Only visible if unlocked */}
+                      {level.isUnlocked && (
+                        <View style={styles.cardContent}>
+                          <View style={styles.difficultyBadge}>
+                            <Text style={styles.difficultyText}>
+                              {level.difficulty}
+                            </Text>
+                          </View>
+
+                          <Text style={styles.cardTitle}>{level.title}</Text>
+
+                          {level.isCompleted && (
+                            <View style={styles.completedBadge}>
+                              <Text style={styles.completedText}>
+                                ✓ Completed
+                              </Text>
+                            </View>
+                          )}
+
+                          {/* Progress Indicator */}
+                          {!level.isCompleted && (
+                            <View style={styles.progressIndicator}>
+                              <Text style={styles.progressText}>
+                                {level.completedStages}/
+                                {stagesPerLevel[level.levelGroup]} Stages
+                              </Text>
+                            </View>
+                          )}
                         </View>
-
-                        <Text style={styles.cardTitle}>{level.title}</Text>
-
-                        {level.isCompleted && (
-                          <View style={styles.completedBadge}>
-                            <Text style={styles.completedText}>
-                              ✓ Completed
-                            </Text>
-                          </View>
-                        )}
-
-                        {/* Progress Indicator */}
-                        {level.isUnlocked && !level.isCompleted && (
-                          <View style={styles.progressIndicator}>
-                            <Text style={styles.progressText}>
-                              {level.completedStages}/
-                              {stagesPerLevel[level.levelGroup]} Stages
-                            </Text>
-                          </View>
-                        )}
-                      </View>
+                      )}
                     </TouchableOpacity>
                   </View>
                 );
@@ -730,13 +814,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     opacity: 0.6,
   },
-  bubble1: {
-    top: 20,
-    left: 10,
-    width: 60,
-    height: 60,
-    backgroundColor: "#fde047",
-  },
+
   bubble2: {
     top: 100,
     right: 20,
@@ -786,8 +864,8 @@ const styles = StyleSheet.create({
     zIndex: 50,
   },
   logoImage: {
-    width: 50,
-    height: 50,
+    width: 60,
+    height: 60,
     borderRadius: 14,
   },
   headerButtons: {
@@ -871,27 +949,47 @@ const styles = StyleSheet.create({
   },
   characterSection: {
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 4,
   },
   characterImageContainer: {
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: "#ffa75b",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 5,
-    borderColor: "#ffffff",
+    borderWidth: 0,
+    borderColor: "transparent",
+    backgroundColor: "transparent",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 10,
-    marginBottom: 10,
+    marginBottom: 8,
+    position: "relative",
+  },
+  characterGlow: {
+    position: "absolute",
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: "#ffa75b",
+    shadowColor: "#ffa75b",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 20,
+    elevation: 15,
   },
   characterImage: {
-    width: 110,
-    height: 110,
+    width: 120,
+    height: 120,
+    zIndex: 2,
+  },
+  characterPlaceholder: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "bold",
+    zIndex: 2,
   },
   playerName: {
     fontSize: 24,
@@ -912,7 +1010,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   carouselWrapper: {
-    height: height * 0.28,
+    height: height * 0.3,
     marginBottom: 10,
   },
   scrollContent: {
@@ -924,11 +1022,11 @@ const styles = StyleSheet.create({
   },
   levelCard: {
     width: CARD_WIDTH,
-    height: "100%",
+    height: height * 0.26,
     backgroundColor: "rgba(255, 255, 255, 0.98)",
     borderRadius: 20,
-    borderWidth: 3,
-    borderColor: "#ffffff",
+    borderWidth: 4,
+    borderColor: "rgba(255, 255, 255, 0.8)",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,
@@ -936,9 +1034,35 @@ const styles = StyleSheet.create({
     elevation: 10,
     opacity: 1,
     overflow: "hidden",
+    position: "relative",
   },
   levelCardActive: {
-    borderColor: "#ffa75b",
+    borderWidth: 5,
+  },
+  glowBorder: {
+    position: "absolute",
+    borderRadius: 24,
+    borderWidth: 5,
+    shadowOpacity: 0.9,
+    shadowRadius: 20,
+    elevation: 15,
+    pointerEvents: "none",
+  },
+  glowBorderOuter: {
+    top: -8,
+    left: -8,
+    right: -8,
+    bottom: -8,
+    shadowRadius: 30,
+    shadowOpacity: 1,
+  },
+  glowBorderInner: {
+    top: -5,
+    left: -5,
+    right: -5,
+    bottom: -5,
+    shadowRadius: 18,
+    opacity: 0.8,
   },
   levelCardSelected: {
     borderColor: "#ffa75b",
@@ -951,25 +1075,35 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: "100%",
     height: "100%",
-    opacity: 0.3,
+    opacity: 1,
   },
   lockOverlay: {
     position: "absolute",
     width: "100%",
     height: "100%",
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    backgroundColor: "rgba(50, 50, 50, 0.95)",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 10,
   },
   lockIcon: {
-    fontSize: 50,
-    marginBottom: 8,
+    fontSize: 60,
+    marginBottom: 12,
   },
   lockText: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "900",
     color: "#ffffff",
+    textShadowColor: "rgba(0, 0, 0, 0.5)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
+  },
+  lockSubtext: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#cccccc",
+    marginTop: 8,
+    textAlign: "center",
   },
   cardContent: {
     flex: 1,
@@ -978,45 +1112,63 @@ const styles = StyleSheet.create({
   },
   difficultyBadge: {
     alignSelf: "flex-start",
-    backgroundColor: "#ffa75b",
+    backgroundColor: "rgba(255, 167, 91, 0.9)",
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 15,
+    borderWidth: 2,
+    borderColor: "#ffffff",
   },
   difficultyText: {
     color: "#ffffff",
     fontSize: 14,
     fontWeight: "900",
+    textShadowColor: "rgba(0, 0, 0, 0.3)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   cardTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "900",
-    color: "#333",
+    color: "#ffffff",
     textAlign: "center",
+    textShadowColor: "rgba(0, 0, 0, 0.8)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
   },
   completedBadge: {
     alignSelf: "center",
-    backgroundColor: "#4ade80",
+    backgroundColor: "rgba(74, 222, 128, 0.95)",
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 15,
+    borderWidth: 2,
+    borderColor: "#ffffff",
   },
   completedText: {
     color: "#ffffff",
     fontSize: 14,
     fontWeight: "900",
+    textShadowColor: "rgba(0, 0, 0, 0.3)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   progressIndicator: {
     alignSelf: "center",
-    backgroundColor: "#64b5f6",
+    backgroundColor: "rgba(100, 181, 246, 0.95)",
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#ffffff",
   },
   progressText: {
     color: "#ffffff",
     fontSize: 12,
     fontWeight: "700",
+    textShadowColor: "rgba(0, 0, 0, 0.3)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   dotsContainer: {
     flexDirection: "row",

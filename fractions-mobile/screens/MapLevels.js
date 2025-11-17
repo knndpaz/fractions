@@ -24,6 +24,31 @@ const verticalScale = (size) => (height / 812) * size;
 const moderateScale = (size, factor = 0.5) =>
   size + (scale(size) - size) * factor;
 
+// Level configuration with themes
+const LEVEL_THEMES = {
+  1: {
+    name: "Food Forest",
+    background: require("../assets/foodforest.jpg"),
+    primaryColor: "#1DB954",
+    secondaryColor: "#15803d",
+    accentColor: "#FFA85C",
+  },
+  2: {
+    name: "Potion River",
+    background: require("../assets/potionriver.jpg"),
+    primaryColor: "#6B5FFF",
+    secondaryColor: "#5348C7",
+    accentColor: "#FF6BCB",
+  },
+  3: {
+    name: "Broken Community Houses",
+    background: require("../assets/brokenhouses.jpg"),
+    primaryColor: "#FF6B6B",
+    secondaryColor: "#C92A2A",
+    accentColor: "#FFD93D",
+  },
+};
+
 const BurgerMenu = ({ visible, onClose, onNavigateToLevelSelect }) => {
   const slideAnim = useRef(new Animated.Value(-300)).current;
 
@@ -83,6 +108,9 @@ export default function MapLevels({ navigation, route }) {
   const selectedCharacter = route?.params?.selectedCharacter || 0;
   const [unlockedLevels, setUnlockedLevels] = useState([1]);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Get current theme based on level group
+  const currentTheme = LEVEL_THEMES[levelGroup] || LEVEL_THEMES[1];
 
   // Animation refs
   const bounceAnims = useRef([1, 2].map(() => new Animated.Value(0))).current;
@@ -263,14 +291,16 @@ export default function MapLevels({ navigation, route }) {
 
   const getStageColor = (stage) => {
     if (isStageUnlocked(stage)) {
-      return stage === 1 ? "#1DB954" : "#FFA85C";
+      return stage === 1 ? currentTheme.primaryColor : currentTheme.accentColor;
     }
     return "#888";
   };
 
   const getStageGradient = (stage) => {
     if (isStageUnlocked(stage)) {
-      return stage === 1 ? "#15803d" : "#ff8c00";
+      return stage === 1
+        ? currentTheme.secondaryColor
+        : currentTheme.accentColor;
     }
     return "#666";
   };
@@ -295,7 +325,7 @@ export default function MapLevels({ navigation, route }) {
   return (
     <View style={styles.container}>
       <ImageBackground
-        source={require("../assets/map 1.png")}
+        source={currentTheme.background}
         style={styles.background}
         resizeMode="cover"
       >
@@ -332,7 +362,10 @@ export default function MapLevels({ navigation, route }) {
 
         {/* Back/Menu Button */}
         <TouchableOpacity
-          style={styles.menuBtn}
+          style={[
+            styles.menuBtn,
+            { backgroundColor: currentTheme.accentColor },
+          ]}
           onPress={() => setMenuOpen(true)}
           activeOpacity={0.8}
         >
@@ -368,10 +401,23 @@ export default function MapLevels({ navigation, route }) {
         </TouchableOpacity>
 
         {/* Enhanced Progress Card */}
-        <Animated.View style={[styles.progressCard, { opacity: fadeAnim }]}>
+        <Animated.View
+          style={[
+            styles.progressCard,
+            { opacity: fadeAnim, borderColor: currentTheme.accentColor },
+          ]}
+        >
           <View style={styles.progressHeader}>
-            <Text style={styles.levelTitle}>Level {levelGroup}</Text>
-            <View style={styles.badge}>
+            <View>
+              <Text style={styles.levelTitle}>{currentTheme.name}</Text>
+              <Text style={styles.levelSubtitle}>Level {levelGroup}</Text>
+            </View>
+            <View
+              style={[
+                styles.badge,
+                { backgroundColor: currentTheme.accentColor },
+              ]}
+            >
               <Text style={styles.badgeText}>
                 {unlockedLevels.length}/{allStages.length}
               </Text>
@@ -383,6 +429,7 @@ export default function MapLevels({ navigation, route }) {
                 styles.progressBarFill,
                 {
                   width: `${(unlockedLevels.length / allStages.length) * 100}%`,
+                  backgroundColor: currentTheme.primaryColor,
                 },
               ]}
             />
@@ -421,7 +468,9 @@ export default function MapLevels({ navigation, route }) {
                           )}rad`,
                         },
                       ],
-                      backgroundColor: isUnlocked ? "#1DB954" : "#ccc",
+                      backgroundColor: isUnlocked
+                        ? currentTheme.primaryColor
+                        : "#ccc",
                     },
                   ]}
                 />
@@ -512,7 +561,6 @@ const styles = StyleSheet.create({
     height: moderateScale(56),
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#FFA85C",
     borderRadius: moderateScale(16),
     elevation: 8,
     shadowColor: "#000",
@@ -581,7 +629,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     minWidth: scale(280),
     borderWidth: moderateScale(3),
-    borderColor: "#FFA85C",
   },
   progressHeader: {
     flexDirection: "row",
@@ -591,11 +638,16 @@ const styles = StyleSheet.create({
   },
   levelTitle: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(18),
     color: "#222",
   },
+  levelSubtitle: {
+    fontFamily: "Poppins-Regular",
+    fontSize: moderateScale(12),
+    color: "#666",
+    marginTop: verticalScale(2),
+  },
   badge: {
-    backgroundColor: "#FFA85C",
     borderRadius: moderateScale(12),
     paddingHorizontal: scale(12),
     paddingVertical: verticalScale(4),
@@ -616,7 +668,6 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: "100%",
-    backgroundColor: "#1DB954",
     borderRadius: moderateScale(5),
   },
   progressSubtext: {
