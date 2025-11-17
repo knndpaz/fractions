@@ -483,7 +483,7 @@ export default function AdventureGame({ navigation, route }) {
       <View style={styles.gradientContainer}>
         {/* Background Image */}
         <Image
-          source={require("../assets/bg1.png")}
+          source={require("../assets/bg 1.png")}
           style={styles.backgroundImage}
           resizeMode="cover"
         />
