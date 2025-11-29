@@ -10,6 +10,7 @@ import {
   Animated,
   Platform,
   Modal,
+  ScrollView,
 } from "react-native";
 import { Audio } from "expo-av";
 import { LevelProgress } from "../utils/levelProgress";
@@ -42,11 +43,28 @@ import {
 
 const { width, height } = Dimensions.get("window");
 
-// Responsive scaling functions
-const scale = (size) => (width / SCALING_CONFIG.BASE_WIDTH) * size;
-const verticalScale = (size) => (height / SCALING_CONFIG.BASE_HEIGHT) * size;
-const moderateScale = (size, factor = SCALING_CONFIG.MODERATE_SCALE_FACTOR) =>
-  size + (scale(size) - size) * factor;
+// Enhanced responsive scaling functions with max constraints
+const scale = (size) => {
+  const scaledSize = (width / SCALING_CONFIG.BASE_WIDTH) * size;
+  // Cap scaling for larger screens
+  return Math.min(scaledSize, size * 1.5);
+};
+
+const verticalScale = (size) => {
+  const scaledSize = (height / SCALING_CONFIG.BASE_HEIGHT) * size;
+  // Cap scaling for larger screens
+  return Math.min(scaledSize, size * 1.5);
+};
+
+const moderateScale = (size, factor = SCALING_CONFIG.MODERATE_SCALE_FACTOR) => {
+  const scaled = size + (scale(size) - size) * factor;
+  // Cap scaling for larger screens
+  return Math.min(scaled, size * 1.3);
+};
+
+// Check if device is tablet/desktop
+const isLargeScreen = width > 768;
+const isDesktop = width > 1024;
 
 export default function Quiz({ navigation, route }) {
   const { switchToBattleMusic, switchToBackgroundMusic } = useMusic();
@@ -76,13 +94,18 @@ export default function Quiz({ navigation, route }) {
   const sparkleAnim = useRef(new Animated.Value(0)).current;
 
   // Process questions with shuffling for Level 2 Stage 2
-  const processedQuestions = useMemo(() => getProcessedQuestions(questions), []);
+  const processedQuestions = useMemo(
+    () => getProcessedQuestions(questions),
+    []
+  );
 
   // Get current question and help steps
   const currentQuestion =
-    processedQuestions[levelGroup]?.[stage]?.[quizIndex - 1] || processedQuestions[1][1][0];
-  
-  const currentHelpSteps = helpSteps[levelGroup]?.[stage]?.[quizIndex] || helpSteps[1][1][1];
+    processedQuestions[levelGroup]?.[stage]?.[quizIndex - 1] ||
+    processedQuestions[1][1][0];
+
+  const currentHelpSteps =
+    helpSteps[levelGroup]?.[stage]?.[quizIndex] || helpSteps[1][1][1];
 
   useEffect(() => {
     switchToBattleMusic();
@@ -226,9 +249,7 @@ export default function Quiz({ navigation, route }) {
 
     if (isCorrect && correctSound) {
       await correctSound.replayAsync();
-      // Record correct answer
       await LevelProgress.recordAnswer(levelGroup, stage, true);
-      // Show help modal after correct answer
       setTimeout(() => {
         setHelpModalVisible(true);
         setCurrentHelpStep(0);
@@ -236,8 +257,7 @@ export default function Quiz({ navigation, route }) {
       }, 500);
     } else if (!isCorrect && wrongSound) {
       await wrongSound.replayAsync();
-      // Record wrong answer
-      setWrongAnswersCount(prev => prev + 1);
+      setWrongAnswersCount((prev) => prev + 1);
       await LevelProgress.recordAnswer(levelGroup, stage, false);
     }
   };
@@ -330,7 +350,6 @@ export default function Quiz({ navigation, route }) {
   };
 
   const handleHelpClose = () => {
-    // Prevent closing without completing all steps
     if (currentHelpStep === currentHelpSteps.length - 1) {
       setHelpModalVisible(false);
       setCurrentHelpStep(0);
@@ -361,10 +380,8 @@ export default function Quiz({ navigation, route }) {
         style={styles.background}
         resizeMode="cover"
       >
-        {/* Gradient overlay */}
         <View style={styles.gradientOverlay} />
 
-        {/* Sparkle Effect */}
         <Animated.View
           style={[
             styles.sparkle,
@@ -377,7 +394,6 @@ export default function Quiz({ navigation, route }) {
           <Text style={styles.sparkleText}>✨</Text>
         </Animated.View>
 
-        {/* Back Button */}
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() => navigation.goBack()}
@@ -386,7 +402,6 @@ export default function Quiz({ navigation, route }) {
           <Text style={styles.backBtnText}>←</Text>
         </TouchableOpacity>
 
-        {/* Enhanced Timer */}
         <Animated.View
           style={[
             styles.timerContainer,
@@ -406,7 +421,6 @@ export default function Quiz({ navigation, route }) {
           </View>
         </Animated.View>
 
-        {/* Progress dots */}
         <View style={styles.progressContainer}>
           {[1, 2, 3, 4, 5].map((dot) => (
             <View
@@ -420,131 +434,140 @@ export default function Quiz({ navigation, route }) {
           ))}
         </View>
 
-        {/* Level indicator */}
         <View style={styles.levelIndicator}>
           <Text style={styles.levelText}>{currentQuestion.title}</Text>
         </View>
 
-        {/* Enhanced quiz card */}
-        <Animated.View
-          style={[
-            styles.quizCard,
-            {
-              opacity: cardOpacity,
-              transform: [{ scale: cardScale }],
-            },
-          ]}
+        {/* ScrollView wrapper for better responsiveness */}
+        <ScrollView
+          style={styles.contentScrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
         >
-          <View style={styles.cardHeader}>
-            <Text style={styles.questionLabel}>Solve the Fraction Problem</Text>
+          <Animated.View
+            style={[
+              styles.quizCard,
+              {
+                opacity: cardOpacity,
+                transform: [{ scale: cardScale }],
+              },
+            ]}
+          >
+            <View style={styles.cardHeader}>
+              <Text style={styles.questionLabel}>
+                Solve the Fraction Problem
+              </Text>
+            </View>
+
+            {currentQuestion.question ? (
+              <View style={styles.questionContainer}>
+                <Text style={styles.questionText}>
+                  {currentQuestion.question}
+                </Text>
+              </View>
+            ) : currentQuestion.image ? (
+              <View style={styles.imageContainer}>
+                <Image
+                  source={currentQuestion.image}
+                  style={styles.quizImage}
+                  resizeMode="contain"
+                />
+              </View>
+            ) : null}
+          </Animated.View>
+
+          <View style={styles.answersContainer}>
+            <View style={styles.answersRow}>
+              {currentQuestion.answers.map((answer, idx) => {
+                const isSelected = selectedIdx === idx;
+                const isCorrect = idx === currentQuestion.correctAnswer;
+
+                return (
+                  <Animated.View
+                    key={idx}
+                    style={[
+                      styles.answerBtnWrapper,
+                      { transform: [{ scale: buttonScales[idx] }] },
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={[
+                        styles.answerBtn,
+                        isSelected &&
+                          answerStatus === "correct" &&
+                          isCorrect &&
+                          styles.correctAnswer,
+                        isSelected &&
+                          answerStatus === "wrong" &&
+                          styles.wrongAnswer,
+                        isSelected && !answerStatus && styles.selectedAnswer,
+                      ]}
+                      onPress={() => handleAnswerPress(idx)}
+                      disabled={!!answerStatus}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.answerText}>{answer}</Text>
+                      {isSelected &&
+                        answerStatus === "correct" &&
+                        isCorrect && <Text style={styles.answerIcon}>✓</Text>}
+                      {isSelected && answerStatus === "wrong" && (
+                        <Text style={styles.answerIcon}>✗</Text>
+                      )}
+                    </TouchableOpacity>
+                  </Animated.View>
+                );
+              })}
+            </View>
           </View>
 
-          {currentQuestion.question ? (
-            <View style={styles.questionContainer}>
-              <Text style={styles.questionText}>{currentQuestion.question}</Text>
-            </View>
-          ) : currentQuestion.image ? (
-            <View style={styles.imageContainer}>
-              <Image
-                source={currentQuestion.image}
-                style={styles.quizImage}
-                resizeMode="contain"
-              />
-            </View>
-          ) : null}
-        </Animated.View>
-
-        {/* Answer buttons */}
-        <View style={styles.answersContainer}>
-          <View style={styles.answersRow}>
-            {currentQuestion.answers.map((answer, idx) => {
-              const isSelected = selectedIdx === idx;
-              const isCorrect = idx === currentQuestion.correctAnswer;
-
-              return (
-                <Animated.View
-                  key={idx}
-                  style={[
-                    styles.answerBtnWrapper,
-                    { transform: [{ scale: buttonScales[idx] }] },
-                  ]}
-                >
+          {answerStatus && (
+            <Animated.View style={styles.feedbackContainer}>
+              <View
+                style={[
+                  styles.feedbackCard,
+                  answerStatus === "correct"
+                    ? styles.feedbackCorrect
+                    : styles.feedbackWrong,
+                ]}
+              >
+                <Text style={styles.feedbackIcon}>
+                  {answerStatus === "correct" ? "🎉" : "💪"}
+                </Text>
+                <Text style={styles.feedbackTitle}>
+                  {answerStatus === "correct" ? "Excellent!" : "Try Again!"}
+                </Text>
+                <Text style={styles.feedbackSubtext}>
+                  {answerStatus === "correct"
+                    ? helpStepsCompleted
+                      ? "You got it right!"
+                      : "Review the solution steps..."
+                    : "You can do better!"}
+                </Text>
+                {answerStatus === "correct" && helpStepsCompleted ? (
                   <TouchableOpacity
-                    style={[
-                      styles.answerBtn,
-                      isSelected &&
-                      answerStatus === "correct" &&
-                      isCorrect &&
-                      styles.correctAnswer,
-                      isSelected &&
-                      answerStatus === "wrong" &&
-                      styles.wrongAnswer,
-                      isSelected && !answerStatus && styles.selectedAnswer,
-                    ]}
-                    onPress={() => handleAnswerPress(idx)}
-                    disabled={!!answerStatus}
+                    style={[styles.actionBtn, styles.nextBtn]}
+                    onPress={handleNext}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.answerText}>{answer}</Text>
-                    {isSelected && answerStatus === "correct" && isCorrect && (
-                      <Text style={styles.answerIcon}>✓</Text>
-                    )}
-                    {isSelected && answerStatus === "wrong" && (
-                      <Text style={styles.answerIcon}>✗</Text>
-                    )}
+                    <Text style={styles.actionBtnText}>
+                      {quizIndex < 5 ? "Next Question →" : "Finish Quiz 🎯"}
+                    </Text>
                   </TouchableOpacity>
-                </Animated.View>
-              );
-            })}
-          </View>
-        </View>
+                ) : answerStatus === "wrong" ? (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.tryAgainBtn]}
+                    onPress={handleTryAgain}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.actionBtnText}>Try Again 🔄</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </Animated.View>
+          )}
+        </ScrollView>
 
-        {/* Enhanced feedback indicator */}
-        {answerStatus && (
-          <Animated.View style={styles.feedbackContainer}>
-            <View
-              style={[
-                styles.feedbackCard,
-                answerStatus === "correct"
-                  ? styles.feedbackCorrect
-                  : styles.feedbackWrong,
-              ]}
-            >
-              <Text style={styles.feedbackIcon}>
-                {answerStatus === "correct" ? "🎉" : "💪"}
-              </Text>
-              <Text style={styles.feedbackTitle}>
-                {answerStatus === "correct" ? "Excellent!" : "Try Again!"}
-              </Text>
-              <Text style={styles.feedbackSubtext}>
-                {answerStatus === "correct"
-                  ? helpStepsCompleted ? "You got it right!" : "Review the solution steps..."
-                  : "You can do better!"}
-              </Text>
-              {answerStatus === "correct" && helpStepsCompleted ? (
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.nextBtn]}
-                  onPress={handleNext}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.actionBtnText}>
-                    {quizIndex < 5 ? "Next Question →" : "Finish Quiz 🎯"}
-                  </Text>
-                </TouchableOpacity>
-              ) : answerStatus === "wrong" ? (
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.tryAgainBtn]}
-                  onPress={handleTryAgain}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.actionBtnText}>Try Again 🔄</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          </Animated.View>
-        )}
-
-        {/* Help Modal */}
         <Modal
           visible={helpModalVisible}
           transparent={true}
@@ -754,10 +777,18 @@ const styles = StyleSheet.create({
     color: "#222",
     textAlign: "center",
   },
+  contentScrollView: {
+    flex: 1,
+    marginTop: Platform.OS === "ios" ? verticalScale(185) : verticalScale(175),
+  },
+  scrollContent: {
+    alignItems: "center",
+    paddingBottom: verticalScale(30),
+    minHeight: height - verticalScale(185),
+  },
   quizCard: {
-    marginTop: Platform.OS === "ios" ? verticalScale(195) : verticalScale(185),
     alignSelf: "center",
-    width: scale(320),
+    width: isDesktop ? Math.min(scale(320), 500) : scale(320),
     maxWidth: "88%",
     backgroundColor: "#fff",
     borderRadius: moderateScale(20),
@@ -770,6 +801,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     borderWidth: moderateScale(3),
     borderColor: "#FFA85C",
+    marginBottom: verticalScale(20),
   },
   cardHeader: {
     width: "100%",
@@ -801,32 +833,33 @@ const styles = StyleSheet.create({
     marginVertical: verticalScale(8),
   },
   quizImage: {
-    width: scale(260),
-    height: verticalScale(160),
+    width: isDesktop ? Math.min(scale(260), 400) : scale(260),
+    height: isDesktop ? Math.min(verticalScale(160), 250) : verticalScale(160),
     borderRadius: moderateScale(14),
     marginBottom: verticalScale(12),
   },
   answersContainer: {
-    position: "absolute",
-    bottom: verticalScale(120),
     width: "100%",
     paddingHorizontal: scale(20),
+    marginTop: verticalScale(10),
+    marginBottom: verticalScale(20),
   },
   answersRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: scale(10),
+    gap: isLargeScreen ? scale(15) : scale(10),
   },
   answerBtnWrapper: {
-    width: "45%",
-    maxWidth: scale(150),
+    width: isDesktop ? "22%" : isLargeScreen ? "30%" : "45%",
+    maxWidth: isDesktop ? 180 : scale(150),
+    minWidth: isDesktop ? 140 : scale(120),
   },
   answerBtn: {
     backgroundColor: "#FFA85C",
     borderRadius: moderateScale(14),
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(16),
+    paddingVertical: isDesktop ? verticalScale(14) : verticalScale(12),
+    paddingHorizontal: isDesktop ? scale(20) : scale(16),
     alignItems: "center",
     justifyContent: "center",
     elevation: 6,
@@ -836,7 +869,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     borderWidth: moderateScale(2),
     borderColor: "#fff",
-    minHeight: verticalScale(52),
+    minHeight: isDesktop ? verticalScale(60) : verticalScale(52),
   },
   selectedAnswer: {
     backgroundColor: "#ff9933",
@@ -870,10 +903,9 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   feedbackContainer: {
-    position: "absolute",
-    bottom: verticalScale(16),
-    left: scale(20),
-    right: scale(20),
+    width: "100%",
+    paddingHorizontal: scale(20),
+    marginTop: verticalScale(10),
     zIndex: 100,
   },
   feedbackCard: {
@@ -957,7 +989,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: moderateScale(20),
     padding: moderateScale(20),
-    width: scale(300),
+    width: isDesktop ? Math.min(scale(400), 500) : scale(300),
     maxWidth: "88%",
     elevation: 20,
     shadowColor: "#000",
@@ -1050,23 +1082,6 @@ const styles = StyleSheet.create({
   navBtnText: {
     fontFamily: "Poppins-Bold",
     fontSize: moderateScale(14),
-    color: "#fff",
-  },
-  helpBtn: {
-    position: "absolute",
-    right: 0,
-    top: 0,
-    width: moderateScale(28),
-    height: moderateScale(28),
-    borderRadius: moderateScale(14),
-    backgroundColor: "#FFA85C",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 4,
-  },
-  helpBtnText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(16),
     color: "#fff",
   },
 });

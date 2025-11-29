@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   CheckCircle,
+  Search,
 } from "lucide-react";
 
 // Images from public folder
@@ -31,6 +32,9 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
   const [showPassword, setShowPassword] = useState(false);
   const [notification, setNotification] = useState(null);
   const [showSectionDropdown, setShowSectionDropdown] = useState(false);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Single student form state
   const [studentName, setStudentName] = useState("");
@@ -56,6 +60,17 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
   // Teacher data
   const [teacherData, setTeacherData] = useState(null);
 
+  // Filter students based on search query
+  const filteredStudents = students.filter((student) => {
+    if (!searchQuery.trim()) return true;
+
+    const query = searchQuery.toLowerCase();
+    const studentName = (student.name || "").toLowerCase();
+    const sectionName = (student.sections?.name || "").toLowerCase();
+
+    return studentName.includes(query) || sectionName.includes(query);
+  });
+
   // Show notification helper
   const showNotification = (message, type = "success") => {
     setNotification({ message, type });
@@ -76,7 +91,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         .from("sections")
         .select("*")
         .order("created_at", { ascending: true });
-      
+
       if (error) {
         console.error("Error loading sections:", error);
       } else {
@@ -92,12 +107,14 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
     try {
       const { data, error } = await supabase
         .from("students")
-        .select(`
+        .select(
+          `
           *,
           sections(id, name, created_by)
-        `)
+        `
+        )
         .order("created_at", { ascending: true });
-      
+
       if (error) {
         console.error("Error loading students:", error);
       } else {
@@ -117,7 +134,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         .select("*")
         .eq("id", currentUser.id)
         .single();
-      
+
       if (!error && data) {
         setTeacherData(data);
       }
@@ -375,12 +392,12 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           data: {
             username: uname,
             full_name: name,
-            user_type: 'student',
+            user_type: "student",
             section_id: section.id,
             created_by: currentUser?.id,
           },
           emailRedirectTo: undefined, // Prevent confirmation email
-        }
+        },
       });
 
       if (authError) {
@@ -390,7 +407,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
       }
 
       // Wait a moment for the trigger to process
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Insert student record with user_id
       const { data: studentRow, error: studentError } = await supabase
@@ -403,7 +420,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
             email: mail,
             section_id: section.id,
             created_by: currentUser?.id,
-          }
+          },
         ])
         .select(`*, sections(name)`)
         .single();
@@ -416,7 +433,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           .select(`*, sections(name)`)
           .eq("user_id", authData.user.id)
           .single();
-        
+
         if (existingStudent) {
           setStudents((prev) => [...prev, existingStudent]);
           await loadStudents();
@@ -457,9 +474,13 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         username: normalize(s.username),
         email: normalize(s.email),
         password: normalize(s.password),
-        section: normalize(s.section || (sameSection ? multipleStudents[0]?.section : "")),
+        section: normalize(
+          s.section || (sameSection ? multipleStudents[0]?.section : "")
+        ),
       }))
-      .filter((s) => s.name && s.username && s.email && s.password && s.section);
+      .filter(
+        (s) => s.name && s.username && s.email && s.password && s.section
+      );
 
     if (validStudents.length === 0) {
       alert("Please complete at least one student form.");
@@ -484,20 +505,21 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           if (!section) continue;
 
           // Create auth user using regular signUp
-          const { data: authData, error: authError } = await supabase.auth.signUp({
-            email: s.email,
-            password: s.password,
-            options: {
-              data: {
-                username: s.username,
-                full_name: s.name,
-                user_type: 'student',
-                section_id: section.id,
-                created_by: currentUser?.id,
+          const { data: authData, error: authError } =
+            await supabase.auth.signUp({
+              email: s.email,
+              password: s.password,
+              options: {
+                data: {
+                  username: s.username,
+                  full_name: s.name,
+                  user_type: "student",
+                  section_id: section.id,
+                  created_by: currentUser?.id,
+                },
+                emailRedirectTo: undefined,
               },
-              emailRedirectTo: undefined,
-            }
-          });
+            });
 
           if (authError) {
             console.error("Auth error for", s.email, ":", authError);
@@ -505,7 +527,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           }
 
           // Wait for trigger
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
 
           // Insert student record with user_id
           const { data: studentRow, error: studentError } = await supabase
@@ -518,7 +540,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
                 email: s.email,
                 section_id: section.id,
                 created_by: currentUser?.id,
-              }
+              },
             ])
             .select("*, sections(name)")
             .single();
@@ -533,7 +555,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
               .select(`*, sections(name)`)
               .eq("user_id", authData.user.id)
               .single();
-            
+
             if (existingStudent) {
               successCount++;
               created.push(existingStudent);
@@ -552,13 +574,24 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
 
       // Reset forms
       setMultipleStudents([
-        { name: "", username: "", email: "", password: "", section: "", showPassword: false },
+        {
+          name: "",
+          username: "",
+          email: "",
+          password: "",
+          section: "",
+          showPassword: false,
+        },
       ]);
       setIsMultipleMode(false);
       setSameSection(false);
 
       showNotification(
-        `Successfully created ${successCount} student(s).${skippedDuplicates > 0 ? ` ${skippedDuplicates} skipped (duplicates).` : ""}`
+        `Successfully created ${successCount} student(s).${
+          skippedDuplicates > 0
+            ? ` ${skippedDuplicates} skipped (duplicates).`
+            : ""
+        }`
       );
     } catch (error) {
       console.error("Error creating students:", error);
@@ -573,17 +606,23 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
     try {
       await supabase.auth.signOut();
     } catch (e) {
-      console.error('Logout failed:', e?.message || e);
+      console.error("Logout failed:", e?.message || e);
     } finally {
       setShowUserMenu(false);
-      if (typeof onLogout === 'function') onLogout();
-      if (typeof onNavigate === 'function') onNavigate('login');
+      if (typeof onLogout === "function") onLogout();
+      if (typeof onNavigate === "function") onNavigate("login");
     }
   };
 
   // Helper to get display name
   const getDisplayName = () => {
-    return teacherData?.full_name || teacherData?.username || currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.username || 'User';
+    return (
+      teacherData?.full_name ||
+      teacherData?.username ||
+      currentUser?.user_metadata?.full_name ||
+      currentUser?.user_metadata?.username ||
+      "User"
+    );
   };
 
   return (
@@ -653,11 +692,16 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
                     <div className="text-orange-100 text-xs">Admin</div>
                   </div>
                   <img
-                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(getDisplayName())}&background=F68C2E&color=fff`}
+                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
+                      getDisplayName()
+                    )}&background=F68C2E&color=fff`}
                     alt="User"
                     className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white"
                   />
-                  <ChevronDown size={20} className="text-white hidden sm:block" />
+                  <ChevronDown
+                    size={20}
+                    className="text-white hidden sm:block"
+                  />
                 </button>
 
                 {showUserMenu && (
@@ -665,10 +709,16 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
                     className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl py-2"
                     style={{ zIndex: 9999 }}
                   >
-                    <button className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors" type="button">
+                    <button
+                      className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors"
+                      type="button"
+                    >
                       Profile
                     </button>
-                    <button className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors" type="button">
+                    <button
+                      className="w-full text-left px-4 py-2 hover:bg-gray-100 transition-colors"
+                      type="button"
+                    >
                       Settings
                     </button>
                     <hr className="my-2" />
@@ -734,11 +784,45 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
           {/* LEFT COLUMN - All Students List */}
           <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 h-fit lg:sticky lg:top-8">
-            <h3 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4">
-              ALL STUDENTS ({students.length})
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl sm:text-2xl font-bold text-gray-800">
+                ALL STUDENTS ({filteredStudents.length})
+              </h3>
+            </div>
+
+            {/* Search Bar */}
+            <div className="relative mb-4">
+              <Search
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                size={20}
+              />
+              <input
+                type="text"
+                placeholder="Search by name or section..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none transition-all text-sm"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-orange-500 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              )}
+            </div>
+
+            {/* Results count when searching */}
+            {searchQuery && (
+              <div className="mb-3 text-sm text-gray-600">
+                Found {filteredStudents.length} student
+                {filteredStudents.length !== 1 ? "s" : ""}
+              </div>
+            )}
+
             <div className="space-y-3 max-h-[500px] lg:max-h-[700px] overflow-y-auto pr-2">
-              {students.map((student, index) => (
+              {filteredStudents.map((student, index) => (
                 <div
                   key={student.id}
                   className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
@@ -764,7 +848,13 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
                   </div>
                 </div>
               ))}
-              {students.length === 0 && (
+              {filteredStudents.length === 0 && searchQuery && (
+                <div className="text-center py-8 text-gray-500">
+                  <Search size={48} className="mx-auto mb-4 text-gray-300" />
+                  <p>No students found matching "{searchQuery}"</p>
+                </div>
+              )}
+              {students.length === 0 && !searchQuery && (
                 <div className="text-center py-8 text-gray-500">
                   <User size={48} className="mx-auto mb-4 text-gray-300" />
                   <p>No students found. Create your first student.</p>

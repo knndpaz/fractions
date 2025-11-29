@@ -17,7 +17,12 @@ import {
 
 const logo = process.env.PUBLIC_URL + "/logo.png";
 
-export default function DetailedReport({ section, onNavigate, currentUser, onLogout }) {
+export default function DetailedReport({
+  section,
+  onNavigate,
+  currentUser,
+  onLogout,
+}) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -35,7 +40,8 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
         // Get ALL users in this section (not filtered by teacher)
         const { data: usersData } = await supabase
           .from("users")
-          .select(`
+          .select(
+            `
             id,
             username,
             full_name,
@@ -50,14 +56,17 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
               completion_rate,
               last_played
             )
-          `)
+          `
+          )
           .eq("section", section.name);
 
         const roster = (usersData || []).map((u) => ({
           id: u.id,
           name: u.full_name || u.username,
           section_name: u.section,
-          _progress: Array.isArray(u.student_progress) ? u.student_progress : [],
+          _progress: Array.isArray(u.student_progress)
+            ? u.student_progress
+            : [],
         }));
 
         setStudents(roster);
@@ -108,7 +117,8 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
         (r.current_stage || 1) > 1 ||
         (r.total_attempts || 0) > 0;
       if (progressed) current_level = Math.max(current_level, g);
-      if ((r.completion_rate || 0) === 100) current_level = Math.max(current_level, g);
+      if ((r.completion_rate || 0) === 100)
+        current_level = Math.max(current_level, g);
     }
 
     // Approx time spent (fallback): attempts * 12.5s -> minutes
@@ -191,7 +201,13 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
       (p) => p.last_activity && new Date(p.last_activity) >= weekAgo
     ).length;
 
-    return { totalStudents, avgTimePerSession, avgAccuracy, avgProgress, activeThisWeek };
+    return {
+      totalStudents,
+      avgTimePerSession,
+      avgAccuracy,
+      avgProgress,
+      activeThisWeek,
+    };
   })();
 
   const levelStats = (() => {
@@ -206,8 +222,7 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
         completed: all.filter((p) => p.current_level > 1).length,
         struggling: all.filter(
           (p) =>
-            p.current_level === 1 &&
-            (p.accuracy < 70 || p.wrong_attempts >= 5)
+            p.current_level === 1 && (p.accuracy < 70 || p.wrong_attempts >= 5)
         ).length,
       },
       {
@@ -217,8 +232,7 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
         completed: all.filter((p) => p.current_level > 2).length,
         struggling: all.filter(
           (p) =>
-            p.current_level === 2 &&
-            (p.accuracy < 70 || p.wrong_attempts >= 5)
+            p.current_level === 2 && (p.accuracy < 70 || p.wrong_attempts >= 5)
         ).length,
       },
       {
@@ -228,8 +242,7 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
         completed,
         struggling: all.filter(
           (p) =>
-            p.current_level === 3 &&
-            (p.accuracy < 70 || p.wrong_attempts >= 5)
+            p.current_level === 3 && (p.accuracy < 70 || p.wrong_attempts >= 5)
         ).length,
       },
     ];
@@ -268,11 +281,15 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
   // Summaries for Recommendations (replaces old gameProgress usage)
   const summaries = useMemo(() => students.map(summarizeProgress), [students]);
   const highPerformersCount = useMemo(
-    () => summaries.filter((gp) => gp.accuracy >= 90 && gp.completion_rate >= 80).length,
+    () =>
+      summaries.filter((gp) => gp.accuracy >= 90 && gp.completion_rate >= 80)
+        .length,
     [summaries]
   );
   const lowPerformersCount = useMemo(
-    () => summaries.filter((gp) => gp.accuracy < 60 || gp.completion_rate < 30).length,
+    () =>
+      summaries.filter((gp) => gp.accuracy < 60 || gp.completion_rate < 30)
+        .length,
     [summaries]
   );
 
@@ -552,7 +569,8 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
                     High Performers -{" "}
                   </span>
                   <span className="text-gray-600">
-                    {highPerformersCount} students are excelling. Consider advanced challenges.
+                    {highPerformersCount} students are excelling. Consider
+                    advanced challenges.
                   </span>
                 </div>
               </div>
@@ -569,7 +587,8 @@ export default function DetailedReport({ section, onNavigate, currentUser, onLog
                     Students Needing Immediate Attention -{" "}
                   </span>
                   <span className="text-gray-600">
-                    {lowPerformersCount} students with low performance. Schedule one-on-one sessions.
+                    {lowPerformersCount} students with low performance. Schedule
+                    one-on-one sessions.
                   </span>
                 </div>
               </div>

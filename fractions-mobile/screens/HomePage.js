@@ -14,7 +14,6 @@ import {
 const { width, height } = Dimensions.get("window");
 
 export default function HomePage({ navigation }) {
-  const [isMusicPlaying, setIsMusicPlaying] = useState(true);
   const logoBounce = useRef(new Animated.Value(0)).current;
   const logoPulse = useRef(new Animated.Value(1)).current;
   const cloud1Pos = useRef(new Animated.Value(-100)).current;
@@ -22,7 +21,6 @@ export default function HomePage({ navigation }) {
   const cloud3Pos = useRef(new Animated.Value(-200)).current;
   const logoScale = useRef(new Animated.Value(0)).current;
   const playButtonScale = useRef(new Animated.Value(1)).current;
-  const musicButtonScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     // Logo entrance animation
@@ -100,26 +98,6 @@ export default function HomePage({ navigation }) {
     });
   };
 
-  const handleMusicPress = () => {
-    Animated.sequence([
-      Animated.timing(musicButtonScale, {
-        toValue: 0.85,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.spring(musicButtonScale, {
-        toValue: 1,
-        tension: 100,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    setIsMusicPlaying(!isMusicPlaying);
-    // Here you would integrate with react-native-sound or expo-av
-    // Example: if (isMusicPlaying) sound.pause(); else sound.play();
-  };
-
   return (
     <View style={styles.container}>
       <StatusBar
@@ -161,22 +139,6 @@ export default function HomePage({ navigation }) {
           pointerEvents="none"
         >
           <View style={[styles.cloudShape, { width: 70, height: 35 }]} />
-        </Animated.View>
-
-        {/* Music Button */}
-        <Animated.View
-          style={[
-            styles.musicButtonContainer,
-            { transform: [{ scale: musicButtonScale }] },
-          ]}
-        >
-          <TouchableOpacity
-            style={styles.musicButton}
-            onPress={handleMusicPress}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.musicIcon}>{isMusicPlaying ? "🔊" : "🔇"}</Text>
-          </TouchableOpacity>
         </Animated.View>
 
         {/* Content Container */}
@@ -247,30 +209,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-  },
-  musicButtonContainer: {
-    position: "absolute",
-    top: StatusBar.currentHeight ? StatusBar.currentHeight + 20 : 50,
-    right: 20,
-    zIndex: 1000,
-  },
-  musicButton: {
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    borderWidth: 3,
-    borderColor: "#FFA85C",
-  },
-  musicIcon: {
-    fontSize: 28,
   },
   logoContainer: {
     marginBottom: 50,
