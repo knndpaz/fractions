@@ -11,74 +11,122 @@ import {
   Award,
   Download,
   Eye,
+  X,
 } from "lucide-react";
 
 const logo = process.env.PUBLIC_URL + "/logo.png";
 
 export default function Reports({ onNavigate, currentUser, onLogout }) {
   const [sections, setSections] = useState([]);
-  const [users, setUsers] = useState([]);
+  const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [teacherData, setTeacherData] = useState(null);
 
   // Load data from Supabase
   useEffect(() => {
     loadAllData();
+    loadTeacherData();
   }, [currentUser?.id]);
+
+  const loadTeacherData = async () => {
+    if (!currentUser?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from("teachers")
+        .select("*")
+        .eq("id", currentUser.id)
+        .single();
+
+      if (!error && data) {
+        setTeacherData(data);
+      }
+    } catch (error) {
+      console.error("Error loading teacher data:", error);
+    }
+  };
 
   const loadAllData = async () => {
     setLoading(true);
     try {
-      // Load ALL sections (not filtered by teacher)
+      // Load ALL sections
       const { data: sectionsData, error: sectionsError } = await supabase
         .from("sections")
         .select("*")
         .order("created_at", { ascending: true });
-      
-      if (sectionsError) throw sectionsError;
-      setSections(sectionsData || []);
 
-      // Load ALL users with nested progress
-      const sectionNames = (sectionsData || []).map((s) => s.name);
-      let usersData = [];
-      if (sectionNames.length > 0) {
-        const { data, error } = await supabase
-          .from("users")
-          .select(`
-            id,
-            username,
-            full_name,
-            section,
-            student_progress (
-              level_group,
-              completed_stages,
-              current_stage,
-              total_attempts,
-              correct_answers,
-              accuracy,
-              completion_rate,
-              last_played
-            )
-          `)
-          .in("section", sectionNames);
-        if (error) throw error;
-        usersData = data || [];
+      if (sectionsError) {
+        console.error("Error loading sections:", sectionsError);
+        setSections([]);
+      } else {
+        setSections(sectionsData || []);
       }
-      setUsers(usersData);
+
+      // Load ALL students with their section data and progress
+      const { data: studentsData, error: studentsError } = await supabase
+        .from("students")
+        .select(
+          `
+          id,
+          user_id,
+          name,
+          username,
+          email,
+          section_id,
+          created_at,
+          sections (
+            id,
+            name
+          )
+        `
+        )
+        .order("created_at", { ascending: true });
+
+      if (studentsError) {
+        console.error("Error loading students:", studentsError);
+        setStudents([]);
+      } else {
+        // Now load progress for each student
+        const studentsWithProgress = await Promise.all(
+          (studentsData || []).map(async (student) => {
+            if (!student.user_id) return { ...student, student_progress: [] };
+
+            const { data: progressData, error: progressError } = await supabase
+              .from("student_progress")
+              .select("*")
+              .eq("user_id", student.user_id);
+
+            if (progressError) {
+              console.error(
+                `Error loading progress for student ${student.id}:`,
+                progressError
+              );
+              return { ...student, student_progress: [] };
+            }
+
+            return { ...student, student_progress: progressData || [] };
+          })
+        );
+
+        setStudents(studentsWithProgress);
+      }
     } catch (error) {
       console.error("Error loading data:", error);
       setSections([]);
-      setUsers([]);
+      setStudents([]);
     } finally {
       setLoading(false);
     }
   };
 
   // Aggregate helper for one user across level groups 1..3
-  const summarizeUser = (u) => {
-    const rows = Array.isArray(u.student_progress) ? u.student_progress : [];
+  const summarizeUser = (student) => {
+    const rows = Array.isArray(student.student_progress)
+      ? student.student_progress
+      : [];
     const byLevel = { 1: null, 2: null, 3: null };
+
     rows.forEach((r) => {
       const g = Number(r.level_group);
       if ([1, 2, 3].includes(g)) byLevel[g] = r;
@@ -101,9 +149,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
       0
     );
     const overallAccuracy =
-      totalAttempts > 0
-        ? Math.round((totalCorrect / totalAttempts) * 100)
-        : 0;
+      totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
 
     // Current level reached (rough): highest group with meaningful progress
     let currentLevel = 0;
@@ -115,7 +161,8 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
         (r.current_stage || 1) > 1 ||
         (r.total_attempts || 0) > 0;
       if (progressed) currentLevel = Math.max(currentLevel, g);
-      if ((r.completion_rate || 0) === 100) currentLevel = Math.max(currentLevel, g);
+      if ((r.completion_rate || 0) === 100)
+        currentLevel = Math.max(currentLevel, g);
     }
 
     // Completed all levels (1..3)
@@ -144,10 +191,8 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
   };
 
   const calculateSectionStats = (sectionId) => {
-    const s = sections.find((x) => x.id === sectionId);
-    const sectionName = s?.name || "";
-    const roster = users.filter(
-      (u) => (u.section || "").toLowerCase() === sectionName.toLowerCase()
+    const roster = students.filter(
+      (student) => student.section_id === sectionId
     );
 
     if (roster.length === 0) {
@@ -181,7 +226,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
   };
 
   const overallStats = (() => {
-    if (users.length === 0) {
+    if (students.length === 0) {
       return {
         totalStudents: 0,
         totalSections: sections.length,
@@ -189,15 +234,15 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
         avgAccuracy: 0,
       };
     }
-    const summaries = users.map(summarizeUser);
+    const summaries = students.map(summarizeUser);
     const avgProgress = Math.round(
-      summaries.reduce((s, x) => s + x.overallCompletion, 0) / users.length
+      summaries.reduce((s, x) => s + x.overallCompletion, 0) / students.length
     );
     const avgAccuracy = Math.round(
-      summaries.reduce((s, x) => s + x.overallAccuracy, 0) / users.length
+      summaries.reduce((s, x) => s + x.overallAccuracy, 0) / students.length
     );
     return {
-      totalStudents: users.length,
+      totalStudents: students.length,
       totalSections: sections.length,
       avgProgress,
       avgAccuracy,
@@ -207,6 +252,69 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
   const filteredSections = sections.filter((section) =>
     section.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Export report functionality
+  const handleExportReport = () => {
+    const reportData = filteredSections.map((section) => {
+      const stats = calculateSectionStats(section.id);
+      return {
+        Section: section.name,
+        "Total Students": stats.totalStudents,
+        "Avg Completion": `${stats.avgCompletion}%`,
+        "Avg Accuracy": `${stats.avgAccuracy}%`,
+        "Level 1": stats.levelDistribution.level1,
+        "Level 2": stats.levelDistribution.level2,
+        "Level 3": stats.levelDistribution.level3,
+        Completed: stats.levelDistribution.completed,
+      };
+    });
+
+    // Convert to CSV
+    const headers = Object.keys(reportData[0] || {});
+    const csvContent = [
+      headers.join(","),
+      ...reportData.map((row) =>
+        headers.map((header) => row[header]).join(",")
+      ),
+    ].join("\n");
+
+    // Download CSV
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `section-reports-${
+      new Date().toISOString().split("T")[0]
+    }.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Sign out + navigate to login
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error("Logout failed:", e?.message || e);
+    } finally {
+      setShowUserMenu(false);
+      if (typeof onLogout === "function") onLogout();
+      if (typeof onNavigate === "function") onNavigate("login");
+    }
+  };
+
+  // Helper to get display name
+  const getDisplayName = () => {
+    return (
+      teacherData?.full_name ||
+      teacherData?.username ||
+      currentUser?.user_metadata?.full_name ||
+      currentUser?.user_metadata?.username ||
+      "User"
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -246,12 +354,14 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
                 >
                   <div className="text-right hidden sm:block">
                     <div className="text-white font-semibold text-sm">
-                      Justine Nabunturan
+                      {getDisplayName()}
                     </div>
                     <div className="text-orange-100 text-xs">Admin</div>
                   </div>
                   <img
-                    src="https://ui-avatars.com/api/?name=Justine+Nabunturan&background=F68C2E&color=fff"
+                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
+                      getDisplayName()
+                    )}&background=F68C2E&color=fff`}
                     alt="User"
                     className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white"
                   />
@@ -270,7 +380,10 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
                       Settings
                     </button>
                     <hr className="my-2" />
-                    <button className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 transition-colors">
+                    <button
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 transition-colors"
+                    >
                       Logout
                     </button>
                   </div>
@@ -291,6 +404,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
           </p>
         </div>
 
+        {/* Overall Statistics Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
           <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 transform hover:shadow-xl transition-all duration-300">
             <div className="flex items-center justify-between mb-3">
@@ -341,6 +455,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
           </div>
         </div>
 
+        {/* Search and Export Section */}
         <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 mb-8">
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1 relative">
@@ -353,10 +468,22 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
                 placeholder="Search sections..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none transition-all"
+                className="w-full pl-12 pr-10 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none transition-all"
               />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-orange-500 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              )}
             </div>
-            <button className="flex items-center justify-center space-x-2 bg-orange-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-orange-600 transform hover:scale-105 transition-all">
+            <button
+              onClick={handleExportReport}
+              disabled={filteredSections.length === 0}
+              className="flex items-center justify-center space-x-2 bg-orange-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-orange-600 transform hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+            >
               <Download size={20} />
               <span className="hidden sm:inline">Export Report</span>
               <span className="sm:hidden">Export</span>
@@ -371,7 +498,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
           </div>
         )}
 
-        {!loading && (
+        {!loading && filteredSections.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {filteredSections.map((section, index) => {
               const stats = calculateSectionStats(section.id);
@@ -388,10 +515,12 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
                       {section.name}
                     </h3>
                     <span className="bg-orange-100 text-orange-600 px-4 py-2 rounded-full text-sm font-semibold">
-                      {stats.totalStudents} Students
+                      {stats.totalStudents} Student
+                      {stats.totalStudents !== 1 ? "s" : ""}
                     </span>
                   </div>
 
+                  {/* Circular Progress Charts */}
                   <div className="flex justify-around mb-6">
                     <div className="flex flex-col items-center">
                       <div className="relative w-20 h-20 mb-2">
@@ -462,6 +591,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
                     </div>
                   </div>
 
+                  {/* Level Distribution */}
                   <div className="space-y-3 mb-6">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
@@ -537,7 +667,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
 
                     <div className="flex items-center justify-between mt-3">
                       <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                        <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
                         <span className="text-sm text-gray-600">Completed</span>
                       </div>
                       <span className="text-sm font-semibold text-gray-800">
@@ -547,7 +677,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
-                        className="bg-red-500 h-2 rounded-full transition-all duration-500"
+                        className="bg-purple-500 h-2 rounded-full transition-all duration-500"
                         style={{
                           width: `${
                             stats.totalStudents > 0

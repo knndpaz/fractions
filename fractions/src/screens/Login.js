@@ -26,7 +26,7 @@ export default function AdminLogin({ onLoggedIn }) {
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        
+
         // Fetch teacher data from database
         const { data: teacher } = await supabase
           .from("teachers")
@@ -57,9 +57,9 @@ export default function AdminLogin({ onLoggedIn }) {
             ...user.user_metadata,
             full_name: teacher?.full_name || user.user_metadata?.full_name,
             username: teacher?.username || user.user_metadata?.username,
-          }
+          },
         };
-        
+
         onLoggedIn && onLoggedIn(enrichedUser);
       }
     } catch (err) {
@@ -229,9 +229,7 @@ export default function AdminLogin({ onLoggedIn }) {
               style={{ animationDelay: "0.4s" }}
             ></div>
           </div>
-          <p className="text-white text-sm font-semibold">
-            Powered by Kenn Depaz
-          </p>
+          <p className="text-white text-sm font-semibold">Powered by Pogi</p>
         </div>
       </div>
     </div>

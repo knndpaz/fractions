@@ -85,10 +85,9 @@ const ToastNotification = ({ message, type, visible, onHide }) => {
 
 export default function Login({ navigation }) {
   const { startBackgroundMusic } = useMusic();
-  const [email, setEmail] = useState("");
+  const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isMusicPlaying, setIsMusicPlaying] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [toast, setToast] = useState({
     visible: false,
@@ -103,7 +102,6 @@ export default function Login({ navigation }) {
   const formSlide = useRef(new Animated.Value(50)).current;
   const formOpacity = useRef(new Animated.Value(0)).current;
   const loginButtonScale = useRef(new Animated.Value(1)).current;
-  const musicButtonScale = useRef(new Animated.Value(1)).current;
 
   const showToast = (message, type = "error") => {
     setToast({ visible: true, message, type });
@@ -153,24 +151,6 @@ export default function Login({ navigation }) {
     animateCloud(cloud3Pos, 35000);
   }, []);
 
-  const handleMusicPress = () => {
-    Animated.sequence([
-      Animated.timing(musicButtonScale, {
-        toValue: 0.85,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.spring(musicButtonScale, {
-        toValue: 1,
-        tension: 100,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    setIsMusicPlaying(!isMusicPlaying);
-  };
-
   const handleLoginPress = () => {
     Animated.sequence([
       Animated.timing(loginButtonScale, {
@@ -190,8 +170,11 @@ export default function Login({ navigation }) {
   };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      showToast("Please fill in both email and password fields.", "warning");
+    if (!emailOrUsername || !password) {
+      showToast(
+        "Please fill in both email/username and password fields.",
+        "warning"
+      );
       return;
     }
 
@@ -203,10 +186,37 @@ export default function Login({ navigation }) {
     setLoading(true);
 
     try {
+      const input = emailOrUsername.toLowerCase().trim();
+      let email = input;
+
+      // Check if input is an email or username
+      const isEmail = input.includes("@");
+
+      if (!isEmail) {
+        // If it's not an email, look up the email from the username
+        console.log("Looking up email for username:", input);
+
+        const { data: studentData, error: lookupError } = await supabase
+          .from("students")
+          .select("email")
+          .eq("username", input)
+          .single();
+
+        if (lookupError || !studentData) {
+          console.log("Username lookup error:", lookupError);
+          showToast("Username not found. Please check and try again.", "error");
+          setLoading(false);
+          return;
+        }
+
+        email = studentData.email;
+        console.log("Found email for username:", email);
+      }
+
       console.log("Attempting login for:", email);
 
       const response = await supabase.auth.signInWithPassword({
-        email: email.toLowerCase().trim(),
+        email: email,
         password: password,
       });
 
@@ -221,7 +231,10 @@ export default function Login({ navigation }) {
         if (
           error.message?.toLowerCase().includes("invalid login credentials")
         ) {
-          showToast("Invalid email or password. Please try again.", "error");
+          showToast(
+            "Invalid email/username or password. Please try again.",
+            "error"
+          );
         } else if (
           error.message?.toLowerCase().includes("user not found") ||
           error.message?.toLowerCase().includes("not found") ||
@@ -264,7 +277,10 @@ export default function Login({ navigation }) {
           .single();
 
         const characterIdx = studentRows?.character_index;
-        await AsyncStorage.setItem("character_index", String(characterIdx ?? ""));
+        await AsyncStorage.setItem(
+          "character_index",
+          String(characterIdx ?? "")
+        );
 
         showToast("Login successful!", "success");
 
@@ -274,8 +290,14 @@ export default function Login({ navigation }) {
         setTimeout(() => {
           // If character_index exists, go directly to LevelSelect
           // Otherwise, go to CharacterSelect (which will then show dialogue)
-          if (characterIdx !== null && characterIdx !== undefined && characterIdx !== "") {
-            navigation.replace("LevelSelect", { selectedCharacter: Number(characterIdx) });
+          if (
+            characterIdx !== null &&
+            characterIdx !== undefined &&
+            characterIdx !== ""
+          ) {
+            navigation.replace("LevelSelect", {
+              selectedCharacter: Number(characterIdx),
+            });
           } else {
             navigation.replace("CharacterSelect");
           }
@@ -350,22 +372,6 @@ export default function Login({ navigation }) {
           <View style={[styles.cloudShape, { width: 70, height: 35 }]} />
         </Animated.View>
 
-        {/* Music Button */}
-        <Animated.View
-          style={[
-            styles.musicButtonContainer,
-            { transform: [{ scale: musicButtonScale }] },
-          ]}
-        >
-          <TouchableOpacity
-            style={styles.musicButton}
-            onPress={handleMusicPress}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.musicIcon}>{isMusicPlaying ? "🔊" : "🔇"}</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.keyboardView}
@@ -401,12 +407,12 @@ export default function Login({ navigation }) {
 
               <TextInput
                 style={styles.input}
-                placeholder="Email"
+                placeholder="Email or Username"
                 placeholderTextColor="#bdbdbd"
-                value={email}
-                onChangeText={setEmail}
+                value={emailOrUsername}
+                onChangeText={setEmailOrUsername}
                 autoCapitalize="none"
-                keyboardType="email-address"
+                keyboardType="default"
                 editable={!loading}
               />
 
@@ -454,10 +460,10 @@ export default function Login({ navigation }) {
                 onPress={() => navigation.navigate("SignUp")}
                 disabled={loading}
               >
-                <Text style={styles.signupText}>
+                {/* <Text style={styles.signupText}>
                   Don't have an account?{" "}
                   <Text style={styles.signupTextBold}>Sign Up</Text>
-                </Text>
+                </Text> */}
               </TouchableOpacity>
             </Animated.View>
           </View>
@@ -484,30 +490,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,
-  },
-  musicButtonContainer: {
-    position: "absolute",
-    top: StatusBar.currentHeight ? StatusBar.currentHeight + 20 : 50,
-    right: 20,
-    zIndex: 1000,
-  },
-  musicButton: {
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    borderWidth: 3,
-    borderColor: "#FFA85C",
-  },
-  musicIcon: {
-    fontSize: 28,
   },
   logoContainer: {
     marginBottom: 30,
