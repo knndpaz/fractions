@@ -37,39 +37,68 @@ export default function DetailedReport({
 
     const fetchData = async () => {
       try {
-        // Get ALL users in this section (not filtered by teacher)
-        const { data: usersData } = await supabase
-          .from("users")
+        // Get ALL students in this section using the students table
+        const { data: studentsData, error: studentsError } = await supabase
+          .from("students")
           .select(
             `
             id,
+            user_id,
+            name,
             username,
-            full_name,
-            section,
-            student_progress (
-              level_group,
-              completed_stages,
-              current_stage,
-              total_attempts,
-              correct_answers,
-              accuracy,
-              completion_rate,
-              last_played
+            email,
+            section_id,
+            sections (
+              id,
+              name
             )
           `
           )
-          .eq("section", section.name);
+          .eq("section_id", section.id);
 
-        const roster = (usersData || []).map((u) => ({
-          id: u.id,
-          name: u.full_name || u.username,
-          section_name: u.section,
-          _progress: Array.isArray(u.student_progress)
-            ? u.student_progress
-            : [],
-        }));
+        if (studentsError) {
+          console.error("Error loading students:", studentsError);
+          setStudents([]);
+          setLoading(false);
+          return;
+        }
 
-        setStudents(roster);
+        // Fetch progress and quiz_attempts for all students in parallel
+        const rosterWithAttempts = await Promise.all(
+          (studentsData || []).map(async (student) => {
+            if (!student.user_id) {
+              return {
+                id: student.id,
+                name: student.name || student.username,
+                section_name: student.sections?.name || section.name,
+                _progress: [],
+                _attempts: [],
+              };
+            }
+
+            const { data: progressData } = await supabase
+              .from("student_progress")
+              .select("*")
+              .eq("user_id", student.user_id);
+
+            const { data: attemptsData } = await supabase
+              .from("quiz_attempts")
+              .select("*")
+              .eq("user_id", student.user_id)
+              .order("attempt_date", { ascending: false });
+
+            return {
+              id: student.id,
+              user_id: student.user_id,
+              name: student.name || student.username,
+              section_name: student.sections?.name || section.name,
+              _progress: Array.isArray(progressData) ? progressData : [],
+              _attempts: attemptsData || [],
+            };
+          })
+        );
+
+        setStudents(rosterWithAttempts);
       } catch (error) {
         console.error("Error fetching data:", error);
       } finally {
@@ -216,7 +245,7 @@ export default function DetailedReport({
     const completed = all.filter((p) => p.completion_rate === 100).length;
     return [
       {
-        title: "Level 1: Basic Addition",
+        title: "Level 1: The Food Forest",
         color: "#10b981",
         students: reached(1),
         completed: all.filter((p) => p.current_level > 1).length,
@@ -226,7 +255,7 @@ export default function DetailedReport({
         ).length,
       },
       {
-        title: "Level 2: Basic Subtraction",
+        title: "Level 2: The Potion River",
         color: "#3b82f6",
         students: reached(2),
         completed: all.filter((p) => p.current_level > 2).length,
@@ -236,7 +265,7 @@ export default function DetailedReport({
         ).length,
       },
       {
-        title: "Level 3: Mixed Operations",
+        title: "Level 3: Broken Community Houses",
         color: "#f59e0b",
         students: reached(3),
         completed,

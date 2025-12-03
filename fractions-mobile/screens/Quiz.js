@@ -13,6 +13,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Audio } from "expo-av";
+import * as Speech from "expo-speech";
 import { LevelProgress } from "../utils/levelProgress";
 import { DatabaseService, supabase } from "../supabase";
 import { useMusic } from "../App";
@@ -78,6 +79,7 @@ export default function Quiz({ navigation, route }) {
   const [currentHelpStep, setCurrentHelpStep] = useState(0);
   const [helpStepsCompleted, setHelpStepsCompleted] = useState(false);
   const [wrongAnswersCount, setWrongAnswersCount] = useState(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const stage = route?.params?.stage || route?.params?.level || 1;
   const levelGroup = route?.params?.levelGroup || 1;
   const selectedCharacter = route?.params?.selectedCharacter || 0;
@@ -113,8 +115,22 @@ export default function Quiz({ navigation, route }) {
     startSparkleAnimation();
     return () => {
       switchToBackgroundMusic();
+      Speech.stop();
     };
   }, []);
+
+  // Speak help step only when modal first opens
+  useEffect(() => {
+    if (helpModalVisible && currentHelpStep === 0 && currentHelpSteps[0]) {
+      speakText(currentHelpSteps[0]);
+    }
+    return () => {
+      if (!helpModalVisible) {
+        Speech.stop();
+        setIsSpeaking(false);
+      }
+    };
+  }, [helpModalVisible]);
 
   useEffect(() => {
     const loadSounds = async () => {
@@ -333,9 +349,30 @@ export default function Quiz({ navigation, route }) {
     setHelpStepsCompleted(false);
   };
 
-  const handleHelpNext = () => {
+  const speakText = async (text) => {
+    // Stop any ongoing speech
+    await Speech.stop();
+    setIsSpeaking(true);
+    
+    Speech.speak(text, {
+      language: 'en',
+      pitch: 1.0,
+      rate: 0.85,
+      onDone: () => setIsSpeaking(false),
+      onStopped: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
+  };
+
+  const handleHelpNext = async () => {
+    // Stop speech when moving to next step
+    await Speech.stop();
+    setIsSpeaking(false);
+    
     if (currentHelpStep < currentHelpSteps.length - 1) {
-      setCurrentHelpStep(currentHelpStep + 1);
+      const nextStep = currentHelpStep + 1;
+      setCurrentHelpStep(nextStep);
+      // Don't auto-play speech on next
     } else {
       setHelpModalVisible(false);
       setCurrentHelpStep(0);
@@ -343,17 +380,25 @@ export default function Quiz({ navigation, route }) {
     }
   };
 
-  const handleHelpPrevious = () => {
+  const handleHelpPrevious = async () => {
+    // Stop speech when moving to previous step
+    await Speech.stop();
+    setIsSpeaking(false);
+    
     if (currentHelpStep > 0) {
-      setCurrentHelpStep(currentHelpStep - 1);
+      const prevStep = currentHelpStep - 1;
+      setCurrentHelpStep(prevStep);
+      // Don't auto-play speech on previous
     }
   };
 
-  const handleHelpClose = () => {
+  const handleHelpClose = async () => {
     if (currentHelpStep === currentHelpSteps.length - 1) {
+      await Speech.stop();
       setHelpModalVisible(false);
       setCurrentHelpStep(0);
       setHelpStepsCompleted(true);
+      setIsSpeaking(false);
     }
   };
 
@@ -577,6 +622,20 @@ export default function Quiz({ navigation, route }) {
           <View style={styles.modalOverlay}>
             <View style={styles.helpModal}>
               <View style={styles.helpHeader}>
+                <TouchableOpacity
+                  style={styles.speakerBtn}
+                  onPress={() => {
+                    if (isSpeaking) {
+                      Speech.stop();
+                      setIsSpeaking(false);
+                    } else {
+                      speakText(currentHelpSteps[currentHelpStep]);
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.speakerBtnText}>{isSpeaking ? '🔊' : '🔈'}</Text>
+                </TouchableOpacity>
                 <Text style={styles.helpTitle}>Solution Steps</Text>
                 {currentHelpStep === currentHelpSteps.length - 1 && (
                   <TouchableOpacity
@@ -1012,6 +1071,17 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins-Bold",
     fontSize: moderateScale(18),
     color: "#222",
+  },
+  speakerBtn: {
+    width: moderateScale(28),
+    height: moderateScale(28),
+    borderRadius: moderateScale(14),
+    backgroundColor: "#4CAF50",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  speakerBtnText: {
+    fontSize: moderateScale(14),
   },
   closeBtn: {
     width: moderateScale(28),

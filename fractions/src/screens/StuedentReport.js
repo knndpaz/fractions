@@ -89,7 +89,24 @@ export default function StudentReport({ student, section, onNavigate }) {
           .eq("id", student.id)
           .single();
         if (error) throw error;
-        if (mounted) setUserRow(data || null);
+        
+        // Fetch quiz_attempts for accurate time and activity tracking
+        const { data: attemptsData, error: attemptsError } = await supabase
+          .from("quiz_attempts")
+          .select("*")
+          .eq("user_id", student.id)
+          .order("attempt_date", { ascending: false });
+        
+        if (attemptsError) {
+          console.error("Error loading quiz attempts:", attemptsError);
+        }
+        
+        if (mounted) {
+          setUserRow({
+            ...data,
+            quiz_attempts: attemptsData || []
+          });
+        }
       } catch (e) {
         console.error("Failed to load student report:", e);
         if (mounted) setUserRow(null);
@@ -105,6 +122,11 @@ export default function StudentReport({ student, section, onNavigate }) {
 
   const progRows = useMemo(
     () => (Array.isArray(userRow?.student_progress) ? userRow.student_progress : []),
+    [userRow]
+  );
+  
+  const quizAttempts = useMemo(
+    () => (Array.isArray(userRow?.quiz_attempts) ? userRow.quiz_attempts : []),
     [userRow]
   );
 
@@ -123,12 +145,19 @@ export default function StudentReport({ student, section, onNavigate }) {
       [1, 2, 3].reduce((s, g) => s + (byLevel[g]?.completion_rate || 0), 0) / 3
     );
 
-    // Estimated total time from attempts (12.5s/attempt)
-    const totalTimeMinutes = Math.round((totalAttempts * 12.5) / 60);
+    // Calculate accurate total time from quiz_attempts (120s per quiz - time_remaining)
+    const totalTimeSeconds = quizAttempts.reduce((sum, att) => {
+      const timeUsed = 120 - (att.time_remaining || 0);
+      return sum + timeUsed;
+    }, 0);
+    const totalTimeMinutes = Math.round(totalTimeSeconds / 60);
 
-    // Sessions = distinct days of last_played across levels
+    // Sessions = distinct days from quiz_attempts
     const daySet = new Set(
-      progRows.map((r) => dayKey(r.last_played)).filter(Boolean)
+      quizAttempts
+        .filter(att => att.attempt_date)
+        .map(att => dayKey(att.attempt_date))
+        .filter(Boolean)
     );
     const sessions = daySet.size;
 
@@ -136,9 +165,9 @@ export default function StudentReport({ student, section, onNavigate }) {
     const weekAgo = new Date();
     weekAgo.setDate(now.getDate() - 7);
     const sessionsThisWeek = new Set(
-      progRows
-        .filter((r) => r.last_played && new Date(r.last_played) >= weekAgo)
-        .map((r) => dayKey(r.last_played))
+      quizAttempts
+        .filter((att) => att.attempt_date && new Date(att.attempt_date) >= weekAgo)
+        .map((att) => dayKey(att.attempt_date))
         .filter(Boolean)
     ).size;
 
@@ -155,11 +184,16 @@ export default function StudentReport({ student, section, onNavigate }) {
       if ((r.completion_rate || 0) === 100) currentLevel = Math.max(currentLevel, g);
     }
 
-    const lastDates = progRows
+    const progressDates = progRows
       .map((r) => r.last_played)
       .filter(Boolean)
       .map((d) => new Date(d).getTime());
-    const lastActivity = lastDates.length ? new Date(Math.max(...lastDates)).toISOString() : null;
+    const attemptDates = quizAttempts
+      .map((a) => a.attempt_date)
+      .filter(Boolean)
+      .map((d) => new Date(d).getTime());
+    const allDates = [...progressDates, ...attemptDates];
+    const lastActivity = allDates.length ? new Date(Math.max(...allDates)).toISOString() : null;
 
     const performanceScore = Math.round(0.6 * compAvg + 0.4 * accuracy); // simple blend
 
@@ -176,7 +210,7 @@ export default function StudentReport({ student, section, onNavigate }) {
       lastActivity,
       performanceScore,
     };
-  }, [progRows]);
+  }, [progRows, quizAttempts]);
 
   // Per-level progress cards
   const levelProgress = useMemo(() => {
@@ -227,14 +261,21 @@ export default function StudentReport({ student, section, onNavigate }) {
 
   // Session statistics
   const sessionStats = useMemo(() => {
+    // Calculate average response time from quiz_attempts
+    const avgResponseTime = quizAttempts.length > 0
+      ? Math.round(
+          quizAttempts.reduce((sum, att) => sum + (120 - (att.time_remaining || 0)), 0) / quizAttempts.length
+        )
+      : 0;
+    
     return [
-      { label: "Problems Solved", value: totals.totalCorrect },
+      { label: "Problems Solved", value: totals.totalAttempts },
       { label: "Correct Answers", value: `${totals.totalCorrect} (${totals.accuracy}%)` },
-      { label: "Average Response Time", value: "12.5 seconds" },
+      { label: "Average Response Time", value: `${avgResponseTime} seconds` },
       { label: "Sessions", value: totals.sessions },
       { label: "Avg Session Time", value: fmtMins(totals.avgSessionTimeMin) },
     ];
-  }, [totals]);
+  }, [totals, quizAttempts]);
 
   // NEW: Summary cards content
   const summary = useMemo(() => {
@@ -266,24 +307,28 @@ export default function StudentReport({ student, section, onNavigate }) {
     ];
   }, [totals]);
 
-  // Recent activity list from student_progress
+  // Recent activity list from quiz_attempts (show last 10 attempts)
   const recentActivity = useMemo(() => {
-    const rows = [...progRows].sort(
-      (a, b) => new Date(b.last_played || 0) - new Date(a.last_played || 0)
-    );
-    return rows.map((r) => {
-      const time = timeAgo(r.last_played);
-      const lvl = Number(r.level_group) || 1;
-      const comp = Number(r.completion_rate || 0);
-      const curr = Number(r.current_stage || 1);
-      const acc = Number(r.accuracy || 0);
+    return quizAttempts.slice(0, 10).map((att) => {
+      const time = timeAgo(att.attempt_date);
+      const lvl = Number(att.level_group) || 1;
+      const stage = Number(att.stage) || 1;
+      const isCorrect = att.is_correct;
+      const timeSpent = Math.round((120 - (att.time_remaining || 0)));
+      
+      const levelNames = {
+        1: "Basic Addition",
+        2: "Basic Subtraction",
+        3: "Mixed Operations"
+      };
+      
       return {
         time,
-        title: `Level ${lvl} Update`,
-        desc: `Completed ${r.completed_stages || 0}/${MAX_STAGE} stages • Current Stage ${curr} • Accuracy ${acc}% • Completion ${comp}%`,
+        title: `${levelNames[lvl] || `Level ${lvl}`} - Stage ${stage}`,
+        desc: `${isCorrect ? '✓ Correct' : '✗ Incorrect'} • Time: ${timeSpent}s`,
       };
     });
-  }, [progRows]);
+  }, [quizAttempts]);
 
   const getLevelColor = (color) => {
     if (color === "green") return "bg-green-500";

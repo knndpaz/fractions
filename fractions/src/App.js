@@ -21,26 +21,94 @@ function App() {
 
     // Get initial session
     const initSession = async () => {
+      console.log("App.js: Initializing session...");
       try {
+        // Skip getSession since it's timing out - just go to login
+        // User will authenticate through login form
+        console.log("App.js: Skipping session check, going to login");
+        if (mounted) {
+          setSession(null);
+          setPage("login");
+          setLoading(false);
+        }
+        return;
+        
+        /* DISABLED - getSession is hanging
+        console.log("App.js: About to call supabase.auth.getSession()");
+        
+        // Add timeout to prevent hanging
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("getSession timeout")), 5000)
+        );
+        
         const {
           data: { session: currentSession },
           error,
-        } = await supabase.auth.getSession();
+        } = await Promise.race([sessionPromise, timeoutPromise]);
+        
+        console.log("App.js: getSession() completed");
         if (error) {
           console.error("Error getting session:", error);
         }
+        console.log("App.js: Current session:", currentSession ? "exists" : "null");
         if (mounted) {
-          setSession(currentSession);
+          // Validate session before accepting it
           if (currentSession) {
+            console.log("App.js: Validating session for user:", currentSession.user.id);
+            // Check if user is a student
+            const { data: student } = await supabase
+              .from("students")
+              .select("id")
+              .eq("user_id", currentSession.user.id)
+              .maybeSingle();
+
+            if (student) {
+              console.log("App.js: User is a student, blocking access");
+              await supabase.auth.signOut();
+              setSession(null);
+              setPage("login");
+              setLoading(false);
+              return;
+            }
+
+            // Check if user is a teacher
+            const { data: teacher } = await supabase
+              .from("teachers")
+              .select("id")
+              .eq("id", currentSession.user.id)
+              .maybeSingle();
+
+            if (!teacher) {
+              console.log("App.js: User is not a teacher, blocking access");
+              await supabase.auth.signOut();
+              setSession(null);
+              setPage("login");
+              setLoading(false);
+              return;
+            }
+
+            // Valid teacher session
+            console.log("App.js: Valid teacher session, setting state");
+            setSession(currentSession);
             setPage("home");
           } else {
+            console.log("App.js: No session, going to login");
+            setSession(null);
             setPage("login");
           }
+          console.log("App.js: Setting loading to false");
           setLoading(false);
         }
+        */
       } catch (err) {
         console.error("Session init error:", err);
         if (mounted) {
+          // If getSession times out, clear storage and show login
+          if (err.message === "getSession timeout") {
+            console.log("App.js: Clearing storage due to timeout");
+            localStorage.clear();
+          }
           setSession(null);
           setPage("login");
           setLoading(false);
@@ -52,14 +120,54 @@ function App() {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, sess) => {
-      if (mounted) {
-        setSession(sess);
-        if (sess && page === "login") {
+      if (!mounted) return;
+      
+      // If there's a new session, verify the user is a teacher before allowing access
+      if (sess) {
+        try {
+          // Check if user is a student (should be blocked)
+          const { data: student } = await supabase
+            .from("students")
+            .select("id")
+            .eq("user_id", sess.user.id)
+            .maybeSingle();
+
+          if (student) {
+            // User is a student - sign them out and prevent navigation
+            await supabase.auth.signOut();
+            setSession(null);
+            setPage("login");
+            return;
+          }
+
+          // Check if user is a teacher
+          const { data: teacher } = await supabase
+            .from("teachers")
+            .select("id")
+            .eq("id", sess.user.id)
+            .maybeSingle();
+
+          if (!teacher) {
+            // Not a teacher - sign them out and prevent navigation
+            await supabase.auth.signOut();
+            setSession(null);
+            setPage("login");
+            return;
+          }
+
+          // Valid teacher - allow session and navigation
+          setSession(sess);
           setPage("home");
-        }
-        if (!sess) {
+        } catch (err) {
+          console.error("Auth verification error:", err);
+          await supabase.auth.signOut();
+          setSession(null);
           setPage("login");
         }
+      } else {
+        // Session ended - go to login
+        setSession(null);
+        setPage("login");
       }
     });
 
@@ -67,7 +175,7 @@ function App() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, []); // Remove 'page' dependency to prevent infinite loop
 
   // Navigation handler for stack navigation
   const handleNavigate = (nextPage, data) => {

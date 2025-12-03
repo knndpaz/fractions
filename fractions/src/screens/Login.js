@@ -9,62 +9,96 @@ export default function AdminLogin({ onLoggedIn }) {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [focusedInput, setFocusedInput] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!username || !password) return;
+    console.log("Login: Starting login...");
     setIsLoading(true);
+    setErrorMessage("");
+    
     try {
-      // Allow email login (recommended)
-      const { data, error } = await supabase.auth.signInWithPassword({
+      // Step 1: Authenticate user credentials
+      console.log("Login: Calling signInWithPassword...");
+      
+      const loginPromise = supabase.auth.signInWithPassword({
         email: username.trim().toLowerCase(),
         password,
       });
+      
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Login timeout")), 10000)
+      );
+      
+      const { data, error } = await Promise.race([loginPromise, timeoutPromise]);
+      
+      console.log("Login: signInWithPassword completed");
+      
       if (error) {
-        alert(error.message);
-      } else {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+        console.log("Login: Error:", error.message);
+        setErrorMessage(error.message);
+        setIsLoading(false);
+        return;
+      }
+      
+      const user = data.user;
+      console.log("Login: User authenticated:", user.id);
 
-        // Fetch teacher data from database
-        const { data: teacher } = await supabase
-          .from("teachers")
-          .select("*")
-          .eq("id", user.id)
-          .single();
+      // Step 2: IMMEDIATELY check if user is a student (should be blocked)
+      const { data: student } = await supabase
+        .from("students")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-        if (!teacher) {
-          // first-time login: create teacher profile row
-          await supabase.from("teachers").insert({
-            id: user.id,
-            email: user.email,
-            full_name: user.user_metadata?.full_name || null,
-            username: user.user_metadata?.username || null,
-          });
-        } else {
-          // update last_login
-          await supabase
-            .from("teachers")
-            .update({ last_login: new Date().toISOString() })
-            .eq("id", user.id);
-        }
+      if (student) {
+        // User is a student - sign out IMMEDIATELY before any state change
+        await supabase.auth.signOut();
+        setErrorMessage("Access denied. Students cannot access the web portal. Please use the mobile app.");
+        setIsLoading(false);
+        return;
+      }
 
-        // Pass user with teacher data merged
-        const enrichedUser = {
-          ...user,
-          user_metadata: {
-            ...user.user_metadata,
-            full_name: teacher?.full_name || user.user_metadata?.full_name,
-            username: teacher?.username || user.user_metadata?.username,
-          },
-        };
+      // Step 3: Check if user is a teacher (required for web access)
+      const { data: teacher } = await supabase
+        .from("teachers")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
 
-        onLoggedIn && onLoggedIn(enrichedUser);
+      if (!teacher) {
+        // User is not a teacher - sign out IMMEDIATELY
+        await supabase.auth.signOut();
+        setErrorMessage("Access denied. Only teachers can access the web portal.");
+        setIsLoading(false);
+        return;
+      }
+
+      // Step 4: Update last_login for teacher
+      await supabase
+        .from("teachers")
+        .update({ last_login: new Date().toISOString() })
+        .eq("id", user.id);
+
+      // Step 5: Only call onLoggedIn if user is verified as a teacher
+      setIsLoading(false);
+      if (onLoggedIn) {
+        onLoggedIn();
       }
     } catch (err) {
-      alert("Login failed. Please try again.");
-    } finally {
+      console.error("Login error:", err);
+      // Make sure to sign out if something went wrong
+      if (err.message === "Login timeout") {
+        setErrorMessage("Login is taking too long. Please check your internet connection and try again.");
+      } else {
+        setErrorMessage("Login failed. Please try again.");
+      }
+      try {
+        await supabase.auth.signOut();
+      } catch (signOutErr) {
+        console.error("Sign out error:", signOutErr);
+      }
       setIsLoading(false);
     }
   };
@@ -124,6 +158,33 @@ export default function AdminLogin({ onLoggedIn }) {
 
           {/* Form */}
           <div className="p-8 space-y-6">
+            {/* Error Message */}
+            {errorMessage && (
+              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 animate-shake">
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0">
+                    <svg
+                      className="h-5 w-5 text-red-500"
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-red-800">
+                      {errorMessage}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Username Input */}
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-gray-700">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../supabase";
 import {
   Home,
@@ -24,13 +24,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [teacherData, setTeacherData] = useState(null);
 
-  // Load data from Supabase
-  useEffect(() => {
-    loadAllData();
-    loadTeacherData();
-  }, [currentUser?.id]);
-
-  const loadTeacherData = async () => {
+  const loadTeacherData = useCallback(async () => {
     if (!currentUser?.id) return;
     try {
       const { data, error } = await supabase
@@ -45,9 +39,10 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
     } catch (error) {
       console.error("Error loading teacher data:", error);
     }
-  };
+  }, [currentUser?.id]);
 
-  const loadAllData = async () => {
+  const loadAllData = useCallback(async () => {
+    console.log("Loading all data...");
     setLoading(true);
     try {
       // Load ALL sections
@@ -60,6 +55,7 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
         console.error("Error loading sections:", sectionsError);
         setSections([]);
       } else {
+        console.log("Loaded sections:", sectionsData?.length || 0);
         setSections(sectionsData || []);
       }
 
@@ -87,10 +83,17 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
         console.error("Error loading students:", studentsError);
         setStudents([]);
       } else {
-        // Now load progress for each student
+        console.log("Loaded students:", studentsData?.length || 0);
+        // If no students, set empty array
+        if (!studentsData || studentsData.length === 0) {
+          setStudents([]);
+          return;
+        }
+        
+        // Now load progress and quiz attempts for each student
         const studentsWithProgress = await Promise.all(
-          (studentsData || []).map(async (student) => {
-            if (!student.user_id) return { ...student, student_progress: [] };
+          studentsData.map(async (student) => {
+            if (!student.user_id) return { ...student, student_progress: [], quiz_attempts: [] };
 
             const { data: progressData, error: progressError } = await supabase
               .from("student_progress")
@@ -102,13 +105,32 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
                 `Error loading progress for student ${student.id}:`,
                 progressError
               );
-              return { ...student, student_progress: [] };
+              return { ...student, student_progress: [], quiz_attempts: [] };
             }
 
-            return { ...student, student_progress: progressData || [] };
+            // Fetch quiz attempts for accurate time and activity tracking
+            const { data: attemptsData, error: attemptsError } = await supabase
+              .from("quiz_attempts")
+              .select("*")
+              .eq("user_id", student.user_id)
+              .order("attempt_date", { ascending: false });
+
+            if (attemptsError) {
+              console.error(
+                `Error loading quiz attempts for student ${student.id}:`,
+                attemptsError
+              );
+            }
+
+            return { 
+              ...student, 
+              student_progress: progressData || [],
+              quiz_attempts: attemptsData || []
+            };
           })
         );
 
+        console.log("Students with progress loaded:", studentsWithProgress.length);
         setStudents(studentsWithProgress);
       }
     } catch (error) {
@@ -116,14 +138,26 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
       setSections([]);
       setStudents([]);
     } finally {
+      console.log("Load complete, setting loading to false");
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Load data from Supabase
+  useEffect(() => {
+    console.log("useEffect triggered - loading data");
+    loadAllData();
+    loadTeacherData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   // Aggregate helper for one user across level groups 1..3
   const summarizeUser = (student) => {
     const rows = Array.isArray(student.student_progress)
       ? student.student_progress
+      : [];
+    const attempts = Array.isArray(student.quiz_attempts)
+      ? student.quiz_attempts
       : [];
     const byLevel = { 1: null, 2: null, 3: null };
 
@@ -170,13 +204,33 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
       (g) => (byLevel[g]?.completion_rate || 0) === 100
     );
 
-    // Last activity
-    const lastDates = rows
+    // Calculate accurate time spent from quiz_attempts (each quiz has 120s total, time_remaining is what's left)
+    const totalTimeSpentSeconds = attempts.reduce((sum, att) => {
+      const timeUsed = 120 - (att.time_remaining || 0);
+      return sum + timeUsed;
+    }, 0);
+    const timeSpentMinutes = Math.round(totalTimeSpentSeconds / 60);
+
+    // Calculate sessions from unique days in quiz_attempts
+    const uniqueDays = new Set(
+      attempts
+        .filter(att => att.attempt_date)
+        .map(att => new Date(att.attempt_date).toDateString())
+    );
+    const totalSessions = uniqueDays.size;
+
+    // Last activity from quiz_attempts or student_progress
+    const attemptDates = attempts
+      .map((a) => a.attempt_date)
+      .filter(Boolean)
+      .map((d) => new Date(d).getTime());
+    const progressDates = rows
       .map((r) => r.last_played)
       .filter(Boolean)
       .map((d) => new Date(d).getTime());
-    const lastPlayed = lastDates.length
-      ? new Date(Math.max(...lastDates)).toISOString()
+    const allDates = [...attemptDates, ...progressDates];
+    const lastPlayed = allDates.length
+      ? new Date(Math.max(...allDates)).toISOString()
       : null;
 
     return {
@@ -187,6 +241,8 @@ export default function Reports({ onNavigate, currentUser, onLogout }) {
       totalAttempts,
       totalCorrect,
       lastPlayed,
+      timeSpentMinutes,
+      totalSessions,
     };
   };
 
