@@ -385,12 +385,12 @@ export default function DetailedReport({
                 >
                   <div className="text-right hidden sm:block">
                     <div className="text-white font-semibold text-sm">
-                      Justine Nabunturan
+                      {currentUser?.user_metadata?.full_name || currentUser?.email || "Teacher"}
                     </div>
                     <div className="text-orange-100 text-xs">Admin</div>
                   </div>
                   <img
-                    src="https://ui-avatars.com/api/?name=Justine+Nabunturan&background=F68C2E&color=fff"
+                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser?.user_metadata?.full_name || currentUser?.email || "Teacher")}&background=F68C2E&color=fff`}
                     alt="User"
                     className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white"
                   />
@@ -784,7 +784,7 @@ export default function DetailedReport({
                       key={student.id}
                       className="hover:bg-gray-50 transition-colors cursor-pointer"
                       onClick={() =>
-                        onNavigate && onNavigate("studentreport", student)
+                        onNavigate && onNavigate("studentreport", { student, section })
                       }
                     >
                       <td className="px-6 py-4">

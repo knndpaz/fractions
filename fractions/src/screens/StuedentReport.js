@@ -52,11 +52,13 @@ export default function StudentReport({ student, section, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [userRow, setUserRow] = useState(null); // users row with nested progress
 
-  // Load this student's user + student_progress
+  // Load this student's progress data
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      if (!student?.id) {
+      // Use user_id if available, otherwise fall back to id
+      const userId = student?.user_id || student?.id;
+      if (!userId) {
         if (mounted) {
           setUserRow(null);
           setLoading(false);
@@ -65,36 +67,21 @@ export default function StudentReport({ student, section, onNavigate }) {
       }
       setLoading(true);
       try {
-        const { data, error } = await supabase
-          .from("users")
-          .select(
-            `
-            id,
-            username,
-            full_name,
-            section,
-            student_progress (
-              level_group,
-              completed_stages,
-              current_stage,
-              total_attempts,
-              correct_answers,
-              accuracy,
-              completion_rate,
-              last_played,
-              created_at
-            )
-          `
-          )
-          .eq("id", student.id)
-          .single();
-        if (error) throw error;
+        // Fetch student_progress data
+        const { data: progressData, error: progressError } = await supabase
+          .from("student_progress")
+          .select("*")
+          .eq("user_id", userId);
+        
+        if (progressError) {
+          console.error("Error loading progress:", progressError);
+        }
         
         // Fetch quiz_attempts for accurate time and activity tracking
         const { data: attemptsData, error: attemptsError } = await supabase
           .from("quiz_attempts")
           .select("*")
-          .eq("user_id", student.id)
+          .eq("user_id", userId)
           .order("attempt_date", { ascending: false });
         
         if (attemptsError) {
@@ -103,7 +90,11 @@ export default function StudentReport({ student, section, onNavigate }) {
         
         if (mounted) {
           setUserRow({
-            ...data,
+            id: userId,
+            username: student?.username || student?.name,
+            full_name: student?.name,
+            section: student?.sections?.name,
+            student_progress: progressData || [],
             quiz_attempts: attemptsData || []
           });
         }
@@ -118,7 +109,7 @@ export default function StudentReport({ student, section, onNavigate }) {
     return () => {
       mounted = false;
     };
-  }, [student?.id]);
+  }, [student?.id, student?.user_id]);
 
   const progRows = useMemo(
     () => (Array.isArray(userRow?.student_progress) ? userRow.student_progress : []),
@@ -338,7 +329,7 @@ export default function StudentReport({ student, section, onNavigate }) {
 
   // Get student name with fallback
   const studentName = student?.name || userRow?.full_name || "Unknown Student";
-  const studentSection = student?.sections?.name || userRow?.section || "Unknown Section";
+  const studentSection = section?.name || student?.sections?.name || userRow?.section || "Unknown Section";
   const studentId = student?.id || userRow?.id || "N/A";
   const studentEmail = student?.email || "No email";
 
@@ -430,9 +421,9 @@ export default function StudentReport({ student, section, onNavigate }) {
         <button
           onClick={() =>
             onNavigate &&
-            onNavigate("detailedreport", {
-              id: student.section_id,
-              name: student.sections?.name || userRow?.section,
+            onNavigate("detailedreport", section || {
+              id: student?.section_id,
+              name: student?.sections?.name || userRow?.section,
             })
           }
           className="flex items-center space-x-2 text-orange-600 hover:text-orange-700 font-semibold mb-6 transform hover:translate-x-1 transition-all"

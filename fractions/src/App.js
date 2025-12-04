@@ -187,7 +187,9 @@ function App() {
       setSelectedSection(data);
       setPage("detailedreport");
     } else if (nextPage === "studentreport") {
-      setSelectedStudent(data);
+      // Store both student and section data
+      setSelectedStudent(data?.student || data);
+      setSelectedSection(data?.section || selectedSection);
       setPage("studentreport");
     } else {
       setPage(nextPage);
@@ -251,6 +253,7 @@ function App() {
       {session && page === "studentreport" && (
         <StuedentReport
           student={selectedStudent}
+          section={selectedSection}
           onNavigate={handleNavigate}
           currentUser={currentUser}
           onLogout={handleLogout}
