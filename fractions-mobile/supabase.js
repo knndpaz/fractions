@@ -120,6 +120,12 @@ export const DatabaseService = {
         );
         const completionRate = Math.round((completedStages / stagesPerLevel[levelGroup]) * 100);
 
+        // When completing a stage correctly, unlock the next stage
+        let nextCurrentStage = Math.max(currentProgress.current_stage, stage);
+        if (isCorrect && stage < stagesPerLevel[levelGroup]) {
+          nextCurrentStage = Math.max(nextCurrentStage, stage + 1);
+        }
+
         progressData = {
           completed_stages: completedStages,
           total_attempts: totalAttempts,
@@ -127,7 +133,7 @@ export const DatabaseService = {
           accuracy,
           completion_rate: completionRate,
           last_played: now,
-          current_stage: Math.max(currentProgress.current_stage, stage),
+          current_stage: nextCurrentStage,
         };
 
         const { error: updateError } = await supabase
@@ -147,11 +153,17 @@ export const DatabaseService = {
         const completedStages = isCorrect ? stage : 0;
         const completionRate = Math.round((completedStages / stagesPerLevel[levelGroup]) * 100);
 
+        // When completing a stage correctly, unlock the next stage
+        let nextCurrentStage = stage;
+        if (isCorrect && stage < stagesPerLevel[levelGroup]) {
+          nextCurrentStage = stage + 1;
+        }
+
         progressData = {
           user_id: userId,
           level_group: levelGroup,
           completed_stages: completedStages,
-          current_stage: stage,
+          current_stage: nextCurrentStage,
           total_attempts: 1,
           correct_answers: isCorrect ? 1 : 0,
           accuracy,
