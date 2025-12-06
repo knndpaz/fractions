@@ -9,11 +9,46 @@ import {
   Animated,
   Dimensions,
   StatusBar,
+  Platform,
 } from "react-native";
 
-const { width, height } = Dimensions.get("window");
+// Get initial dimensions
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// Responsive scaling functions
+const guidelineBaseWidth = 375;
+const guidelineBaseHeight = 812;
+
+const scale = (size) => (SCREEN_WIDTH / guidelineBaseWidth) * size;
+const verticalScale = (size) => (SCREEN_HEIGHT / guidelineBaseHeight) * size;
+const moderateScale = (size, factor = 0.5) =>
+  size + (scale(size) - size) * factor;
+
+// Device type detection
+const isSmallDevice = SCREEN_HEIGHT < 700;
+const isTablet = SCREEN_WIDTH >= 768;
+
+// Dynamic dimensions hook
+const useDimensions = () => {
+  const [dimensions, setDimensions] = React.useState({
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+  });
+
+  React.useEffect(() => {
+    const subscription = Dimensions.addEventListener("change", ({ window }) => {
+      setDimensions({ width: window.width, height: window.height });
+    });
+    return () => subscription?.remove();
+  }, []);
+
+  return dimensions;
+};
 
 export default function HomePage({ navigation }) {
+  const dimensions = useDimensions();
+  const { width, height } = dimensions;
+
   const logoBounce = useRef(new Animated.Value(0)).current;
   const logoPulse = useRef(new Animated.Value(1)).current;
   const cloud1Pos = useRef(new Animated.Value(-100)).current;
@@ -114,31 +149,40 @@ export default function HomePage({ navigation }) {
         <Animated.View
           style={[
             styles.cloud,
-            { top: height * 0.15, transform: [{ translateX: cloud1Pos }] },
+            { top: height * 0.12, transform: [{ translateX: cloud1Pos }] },
           ]}
           pointerEvents="none"
         >
-          <View style={[styles.cloudShape, { width: 80, height: 40 }]} />
+          <View
+            style={[styles.cloudShape, { width: scale(80), height: scale(40) }]}
+          />
         </Animated.View>
 
         <Animated.View
           style={[
             styles.cloud,
-            { top: height * 0.25, transform: [{ translateX: cloud2Pos }] },
+            { top: height * 0.22, transform: [{ translateX: cloud2Pos }] },
           ]}
           pointerEvents="none"
         >
-          <View style={[styles.cloudShape, { width: 100, height: 50 }]} />
+          <View
+            style={[
+              styles.cloudShape,
+              { width: scale(100), height: scale(50) },
+            ]}
+          />
         </Animated.View>
 
         <Animated.View
           style={[
             styles.cloud,
-            { top: height * 0.1, transform: [{ translateX: cloud3Pos }] },
+            { top: height * 0.08, transform: [{ translateX: cloud3Pos }] },
           ]}
           pointerEvents="none"
         >
-          <View style={[styles.cloudShape, { width: 70, height: 35 }]} />
+          <View
+            style={[styles.cloudShape, { width: scale(70), height: scale(35) }]}
+          />
         </Animated.View>
 
         {/* Content Container */}
@@ -183,10 +227,36 @@ export default function HomePage({ navigation }) {
 
           {/* Decorative sparkles */}
           <View style={styles.sparkleContainer} pointerEvents="none">
-            <Text style={[styles.sparkle, { top: -30, left: -40 }]}>✨</Text>
-            <Text style={[styles.sparkle, { top: -30, right: -40 }]}>✨</Text>
-            <Text style={[styles.sparkle, { bottom: -30, left: -30 }]}>⭐</Text>
-            <Text style={[styles.sparkle, { bottom: -30, right: -30 }]}>
+            <Text
+              style={[
+                styles.sparkle,
+                { top: verticalScale(-30), left: scale(-40) },
+              ]}
+            >
+              ✨
+            </Text>
+            <Text
+              style={[
+                styles.sparkle,
+                { top: verticalScale(-30), right: scale(-40) },
+              ]}
+            >
+              ✨
+            </Text>
+            <Text
+              style={[
+                styles.sparkle,
+                { bottom: verticalScale(-30), left: scale(-30) },
+              ]}
+            >
+              ⭐
+            </Text>
+            <Text
+              style={[
+                styles.sparkle,
+                { bottom: verticalScale(-30), right: scale(-30) },
+              ]}
+            >
               ⭐
             </Text>
           </View>
@@ -209,13 +279,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: scale(20),
   },
   logoContainer: {
-    marginBottom: 50,
-    borderWidth: 6,
+    marginBottom: verticalScale(isSmallDevice ? 30 : 50),
+    borderWidth: moderateScale(5),
     borderColor: "#fff",
-    borderRadius: 30,
-    padding: 20,
+    borderRadius: moderateScale(24),
+    padding: moderateScale(isSmallDevice ? 14 : 18),
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     shadowColor: "#000",
     shadowOpacity: 0.3,
     shadowRadius: 12,
@@ -223,44 +295,36 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   logo: {
-    width: width * 0.35,
-    height: width * 0.35,
-    maxWidth: 160,
-    maxHeight: 160,
-    minWidth: 120,
-    minHeight: 120,
+    width: isTablet ? scale(100) : moderateScale(isSmallDevice ? 100 : 120),
+    height: isTablet ? scale(100) : moderateScale(isSmallDevice ? 100 : 120),
   },
   playButton: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFA85C",
-    paddingVertical: height * 0.025,
-    paddingHorizontal: width * 0.1,
-    borderRadius: 20,
+    paddingVertical: verticalScale(isSmallDevice ? 14 : 18),
+    paddingHorizontal: scale(isSmallDevice ? 28 : 36),
+    borderRadius: moderateScale(18),
     elevation: 8,
     shadowColor: "#000",
     shadowOpacity: 0.3,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
-    borderWidth: 4,
+    borderWidth: moderateScale(3.5),
     borderColor: "#fff",
-    minWidth: width * 0.5,
+    minWidth: scale(isSmallDevice ? 160 : 180),
     justifyContent: "center",
   },
   playIcon: {
-    width: width * 0.12,
-    height: width * 0.12,
-    marginRight: 12,
-    maxWidth: 56,
-    maxHeight: 56,
-    minWidth: 40,
-    minHeight: 40,
+    width: moderateScale(isSmallDevice ? 36 : 44),
+    height: moderateScale(isSmallDevice ? 36 : 44),
+    marginRight: scale(10),
   },
   playText: {
     color: "#fff",
-    fontSize: width * 0.08,
+    fontSize: moderateScale(isSmallDevice ? 22 : 26),
     fontWeight: "bold",
-    letterSpacing: 3,
+    letterSpacing: 2,
     fontFamily: "Poppins-Bold",
     textShadowColor: "rgba(0, 0, 0, 0.3)",
     textShadowOffset: { width: 2, height: 2 },
@@ -272,7 +336,7 @@ const styles = StyleSheet.create({
   },
   cloudShape: {
     backgroundColor: "rgba(255, 255, 255, 0.6)",
-    borderRadius: 50,
+    borderRadius: scale(50),
     shadowColor: "#000",
     shadowOpacity: 0.1,
     shadowRadius: 10,
@@ -285,7 +349,7 @@ const styles = StyleSheet.create({
   },
   sparkle: {
     position: "absolute",
-    fontSize: 24,
+    fontSize: moderateScale(isSmallDevice ? 20 : 24),
     opacity: 0.8,
   },
 });

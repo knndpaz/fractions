@@ -10,10 +10,12 @@ import {
   Alert,
   Modal,
   Animated,
+  Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LevelProgress } from "../utils/levelProgress";
 import { useMusic } from "../App";
+import { LinearGradient } from "expo-linear-gradient";
 
 // Conditional import for supabase (only if available)
 let supabase;
@@ -25,9 +27,24 @@ try {
   supabase = null;
 }
 
-const { width, height } = Dimensions.get("window");
-const CARD_WIDTH = width * 0.75;
-const CARD_SPACING = 15;
+// Get initial dimensions
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// Responsive scaling functions
+const guidelineBaseWidth = 375;
+const guidelineBaseHeight = 812;
+
+const scale = (size) => (SCREEN_WIDTH / guidelineBaseWidth) * size;
+const verticalScale = (size) => (SCREEN_HEIGHT / guidelineBaseHeight) * size;
+const moderateScale = (size, factor = 0.5) =>
+  size + (scale(size) - size) * factor;
+
+// Device detection
+const isSmallDevice = SCREEN_HEIGHT < 700;
+const isTablet = SCREEN_WIDTH >= 768;
+
+const CARD_WIDTH = SCREEN_WIDTH * 0.75;
+const CARD_SPACING = scale(15);
 
 // Stages per level configuration
 const stagesPerLevel = {
@@ -113,7 +130,6 @@ export default function AdventureGame({ navigation, route }) {
   const { selectedCharacter: routeSelectedCharacter } = route?.params || {};
   const musicContext = useMusic();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [musicOn, setMusicOn] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedLevel, setSelectedLevel] = useState(null);
   const [userData, setUserData] = useState(null);
@@ -144,6 +160,8 @@ export default function AdventureGame({ navigation, route }) {
 
   // Animation for character glow
   const glowAnim = useRef(new Animated.Value(0)).current;
+  // Animation for card highlight glow
+  const cardGlowAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     // Pulsing glow animation
@@ -161,6 +179,22 @@ export default function AdventureGame({ navigation, route }) {
         }),
       ])
     ).start();
+
+    // Card highlight glow animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(cardGlowAnim, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: false,
+        }),
+        Animated.timing(cardGlowAnim, {
+          toValue: 0,
+          duration: 1500,
+          useNativeDriver: false,
+        }),
+      ])
+    ).start();
   }, []);
 
   const glowScale = glowAnim.interpolate({
@@ -172,6 +206,53 @@ export default function AdventureGame({ navigation, route }) {
     inputRange: [0, 1],
     outputRange: [0.5, 0.9],
   });
+
+  // Card glow interpolation
+  const cardGlowScale = cardGlowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.02],
+  });
+
+  const cardGlowOpacity = cardGlowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.6, 1],
+  });
+
+  // Toggle music function
+  const toggleMusic = async () => {
+    if (musicContext?.backgroundMusic) {
+      try {
+        const status = await musicContext.backgroundMusic.getStatusAsync();
+        if (status.isPlaying) {
+          await musicContext.backgroundMusic.pauseAsync();
+        } else {
+          await musicContext.backgroundMusic.playAsync();
+        }
+      } catch (error) {
+        console.log("Error toggling music:", error);
+      }
+    }
+  };
+
+  // Check if music is playing
+  const [isMusicPlaying, setIsMusicPlaying] = useState(true);
+
+  useEffect(() => {
+    const checkMusicStatus = async () => {
+      if (musicContext?.backgroundMusic) {
+        try {
+          const status = await musicContext.backgroundMusic.getStatusAsync();
+          setIsMusicPlaying(status.isPlaying);
+        } catch (error) {
+          console.log("Error checking music status:", error);
+        }
+      }
+    };
+
+    checkMusicStatus();
+    const interval = setInterval(checkMusicStatus, 1000);
+    return () => clearInterval(interval);
+  }, [musicContext?.backgroundMusic]);
 
   // Get character images dynamically
   const getCharacterImage = (index) => {
@@ -642,7 +723,7 @@ export default function AdventureGame({ navigation, route }) {
       isCompleted: completedLevels[1],
       completedStages: getCompletedStagesCount(1),
       backgroundImage: getLevelBackgroundImage(1),
-      glowColors: ["#4ade80", "#ffa75b"], // Green and Orange glow
+      glowColors: ["#22c55e", "#facc15", "#4ade80"], // Green and Yellow gradient
     },
     {
       id: 2,
@@ -653,7 +734,7 @@ export default function AdventureGame({ navigation, route }) {
       isCompleted: completedLevels[2],
       completedStages: getCompletedStagesCount(2),
       backgroundImage: getLevelBackgroundImage(2),
-      glowColors: ["#f9a8d4", "#93c5fd"], // Pink and Blue pastel glow
+      glowColors: ["#ec4899", "#3b82f6", "#f9a8d4"], // Pink and Blue gradient
     },
     {
       id: 3,
@@ -664,7 +745,7 @@ export default function AdventureGame({ navigation, route }) {
       isCompleted: completedLevels[3],
       completedStages: getCompletedStagesCount(3),
       backgroundImage: getLevelBackgroundImage(3),
-      glowColors: ["#ef4444", "#ffa75b"], // Red and Orange glow
+      glowColors: ["#dc2626", "#1f2937", "#ef4444"], // Red and Black gradient
     },
   ];
 
@@ -708,14 +789,14 @@ export default function AdventureGame({ navigation, route }) {
           <View style={styles.headerButtons}>
             {/* Music Button */}
             <TouchableOpacity
-              onPress={() => setMusicOn(!musicOn)}
+              onPress={toggleMusic}
               style={[
                 styles.headerButton,
-                { backgroundColor: musicOn ? "#ffa75b" : "#94a3b8" },
+                { backgroundColor: isMusicPlaying ? "#ffa75b" : "#94a3b8" },
               ]}
             >
               <Text style={styles.headerButtonIcon}>
-                {musicOn ? "🔊" : "🔇"}
+                {isMusicPlaying ? "🔊" : "🔇"}
               </Text>
             </TouchableOpacity>
 
@@ -796,23 +877,45 @@ export default function AdventureGame({ navigation, route }) {
                     style={[
                       styles.cardContainer,
                       {
-                        marginLeft: index === 0 ? (width - CARD_WIDTH) / 2 : 0,
+                        marginLeft:
+                          index === 0 ? (SCREEN_WIDTH - CARD_WIDTH) / 2 : 0,
                       },
                       {
                         marginRight:
                           index === levels.length - 1
-                            ? (width - CARD_WIDTH) / 2
+                            ? (SCREEN_WIDTH - CARD_WIDTH) / 2
                             : CARD_SPACING,
                       },
                     ]}
                   >
+                    {/* Animated Gradient Glow Border - Only for active unlocked cards */}
+                    {isActive && level.isUnlocked && (
+                      <Animated.View
+                        style={[
+                          styles.gradientGlowContainer,
+                          {
+                            opacity: cardGlowOpacity,
+                            transform: [{ scale: cardGlowScale }],
+                          },
+                        ]}
+                      >
+                        <LinearGradient
+                          colors={level.glowColors}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.gradientGlow}
+                        />
+                      </Animated.View>
+                    )}
+
                     <TouchableOpacity
                       style={[
                         styles.levelCard,
                         isActive && styles.levelCardActive,
-                        isActive && {
-                          transform: [{ scale: 1.05 }],
-                        },
+                        isActive &&
+                          level.isUnlocked && {
+                            transform: [{ scale: 1.02 }],
+                          },
                         isSelected && styles.levelCardSelected,
                         !level.isUnlocked && styles.levelCardLocked,
                       ]}
@@ -820,30 +923,21 @@ export default function AdventureGame({ navigation, route }) {
                       activeOpacity={level.isUnlocked ? 0.8 : 1}
                       disabled={!level.isUnlocked}
                     >
-                      {/* Gradient Glowing Border Effect */}
+                      {/* Animated Gradient Border Inside Card */}
                       {isActive && level.isUnlocked && (
-                        <>
-                          <View
-                            style={[
-                              styles.glowBorder,
-                              styles.glowBorderOuter,
-                              {
-                                borderColor: level.glowColors[0],
-                                shadowColor: level.glowColors[0],
-                              },
-                            ]}
+                        <Animated.View
+                          style={[
+                            styles.innerGradientBorder,
+                            { opacity: cardGlowOpacity },
+                          ]}
+                        >
+                          <LinearGradient
+                            colors={[...level.glowColors, level.glowColors[0]]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.innerGradient}
                           />
-                          <View
-                            style={[
-                              styles.glowBorder,
-                              styles.glowBorderInner,
-                              {
-                                borderColor: level.glowColors[1],
-                                shadowColor: level.glowColors[1],
-                              },
-                            ]}
-                          />
-                        </>
+                        </Animated.View>
                       )}
 
                       {/* Background Image - Only visible if unlocked */}
@@ -1051,26 +1145,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 16,
-    paddingTop: 20,
+    padding: scale(16),
+    paddingTop: Platform.OS === "ios" ? verticalScale(50) : verticalScale(35),
     zIndex: 50,
   },
   logoImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 14,
+    width: moderateScale(55),
+    height: moderateScale(55),
+    borderRadius: moderateScale(14),
   },
   headerButtons: {
     flexDirection: "row",
-    gap: 8,
+    gap: scale(8),
   },
   headerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: moderateScale(42),
+    height: moderateScale(42),
+    borderRadius: moderateScale(12),
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 3,
+    borderWidth: moderateScale(3),
     borderColor: "#ffffff",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
@@ -1079,7 +1173,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   headerButtonIcon: {
-    fontSize: 22,
+    fontSize: moderateScale(20),
   },
   menuOverlay: {
     flex: 1,
@@ -1136,17 +1230,17 @@ const styles = StyleSheet.create({
   },
   mainContent: {
     flex: 1,
-    paddingTop: 5,
+    paddingTop: verticalScale(5),
     justifyContent: "space-between",
   },
   characterSection: {
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: verticalScale(4),
   },
   characterImageContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: moderateScale(isSmallDevice ? 100 : 120),
+    height: moderateScale(isSmallDevice ? 100 : 120),
+    borderRadius: moderateScale(isSmallDevice ? 50 : 60),
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 0,
@@ -1157,14 +1251,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 10,
-    marginBottom: 8,
+    marginBottom: verticalScale(8),
     position: "relative",
   },
   characterGlow: {
     position: "absolute",
-    width: 140,
-    height: 140,
-    borderRadius: 70,
+    width: moderateScale(isSmallDevice ? 120 : 140),
+    height: moderateScale(isSmallDevice ? 120 : 140),
+    borderRadius: moderateScale(isSmallDevice ? 60 : 70),
     backgroundColor: "#ffa75b",
     shadowColor: "#ffa75b",
     shadowOffset: { width: 0, height: 0 },
@@ -1173,18 +1267,18 @@ const styles = StyleSheet.create({
     elevation: 15,
   },
   characterImage: {
-    width: 120,
-    height: 120,
+    width: moderateScale(isSmallDevice ? 100 : 120),
+    height: moderateScale(isSmallDevice ? 100 : 120),
     zIndex: 2,
   },
   characterPlaceholder: {
     color: "#ffffff",
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontWeight: "bold",
     zIndex: 2,
   },
   playerName: {
-    fontSize: 24,
+    fontSize: moderateScale(isSmallDevice ? 20 : 24),
     fontWeight: "900",
     color: "#ffffff",
     textShadowColor: "rgba(0,0,0,0.3)",
@@ -1192,32 +1286,66 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: moderateScale(isSmallDevice ? 18 : 20),
     fontWeight: "900",
     color: "#ffffff",
     textAlign: "center",
-    marginBottom: 12,
+    marginBottom: verticalScale(12),
     textShadowColor: "rgba(0,0,0,0.3)",
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 4,
   },
   carouselWrapper: {
-    height: height * 0.3,
-    marginBottom: 10,
+    height: SCREEN_HEIGHT * 0.3,
+    marginBottom: verticalScale(10),
   },
   scrollContent: {
     alignItems: "center",
-    paddingVertical: 10,
+    paddingVertical: verticalScale(10),
   },
   cardContainer: {
     width: CARD_WIDTH,
+    position: "relative",
+  },
+  // Gradient glow container - positioned behind the card
+  gradientGlowContainer: {
+    position: "absolute",
+    top: -moderateScale(8),
+    left: -moderateScale(8),
+    right: -moderateScale(8),
+    bottom: -moderateScale(8),
+    borderRadius: moderateScale(26),
+    zIndex: -1,
+  },
+  gradientGlow: {
+    flex: 1,
+    borderRadius: moderateScale(26),
+    shadowOpacity: 0.8,
+    shadowRadius: 25,
+    elevation: 15,
+  },
+  // Inner gradient border
+  innerGradientBorder: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: moderateScale(20),
+    zIndex: 1,
+    pointerEvents: "none",
+  },
+  innerGradient: {
+    flex: 1,
+    borderRadius: moderateScale(20),
+    opacity: 0.3,
   },
   levelCard: {
     width: CARD_WIDTH,
-    height: height * 0.26,
+    height: SCREEN_HEIGHT * 0.26,
     backgroundColor: "rgba(255, 255, 255, 0.98)",
-    borderRadius: 20,
-    borderWidth: 4,
+    borderRadius: moderateScale(20),
+    borderWidth: moderateScale(4),
     borderColor: "rgba(255, 255, 255, 0.8)",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
@@ -1229,32 +1357,8 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   levelCardActive: {
-    borderWidth: 5,
-  },
-  glowBorder: {
-    position: "absolute",
-    borderRadius: 24,
-    borderWidth: 5,
-    shadowOpacity: 0.9,
-    shadowRadius: 20,
-    elevation: 15,
-    pointerEvents: "none",
-  },
-  glowBorderOuter: {
-    top: -8,
-    left: -8,
-    right: -8,
-    bottom: -8,
-    shadowRadius: 30,
-    shadowOpacity: 1,
-  },
-  glowBorderInner: {
-    top: -5,
-    left: -5,
-    right: -5,
-    bottom: -5,
-    shadowRadius: 18,
-    opacity: 0.8,
+    borderWidth: moderateScale(5),
+    borderColor: "transparent",
   },
   levelCardSelected: {
     borderColor: "#ffa75b",
@@ -1423,9 +1527,9 @@ const styles = StyleSheet.create({
   },
   logoutModalContainer: {
     backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 24,
-    width: width * 0.8,
+    borderRadius: moderateScale(20),
+    padding: moderateScale(24),
+    width: SCREEN_WIDTH * 0.8,
     maxWidth: 400,
     alignItems: "center",
     elevation: 999,
