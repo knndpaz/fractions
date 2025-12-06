@@ -68,7 +68,7 @@ const isLargeScreen = width > 768;
 const isDesktop = width > 1024;
 
 export default function Quiz({ navigation, route }) {
-  const { switchToBattleMusic, switchToBackgroundMusic } = useMusic();
+  const { switchToBattleMusic, switchToBackgroundMusic, battleMusic } = useMusic();
   const [timer, setTimer] = useState(60);
   const [quizIndex, setQuizIndex] = useState(1);
   const [answerStatus, setAnswerStatus] = useState(null);
@@ -80,6 +80,7 @@ export default function Quiz({ navigation, route }) {
   const [helpStepsCompleted, setHelpStepsCompleted] = useState(false);
   const [wrongAnswersCount, setWrongAnswersCount] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [originalMusicVolume, setOriginalMusicVolume] = useState(1.0);
   const stage = route?.params?.stage || route?.params?.level || 1;
   const levelGroup = route?.params?.levelGroup || 1;
   const selectedCharacter = route?.params?.selectedCharacter || 0;
@@ -116,21 +117,27 @@ export default function Quiz({ navigation, route }) {
     return () => {
       switchToBackgroundMusic();
       Speech.stop();
+      restoreMusicVolume();
     };
   }, []);
 
-  // Speak help step only when modal first opens
+  // Speak help step when modal opens or step changes
   useEffect(() => {
-    if (helpModalVisible && currentHelpStep === 0 && currentHelpSteps[0]) {
-      speakText(currentHelpSteps[0]);
+    if (helpModalVisible && currentHelpSteps[currentHelpStep]) {
+      // Add a small delay to let the modal animation complete
+      const timer = setTimeout(() => {
+        speakText(currentHelpSteps[currentHelpStep]);
+      }, 300);
+      return () => clearTimeout(timer);
     }
     return () => {
       if (!helpModalVisible) {
         Speech.stop();
         setIsSpeaking(false);
+        restoreMusicVolume();
       }
     };
-  }, [helpModalVisible]);
+  }, [helpModalVisible, currentHelpStep]);
 
   useEffect(() => {
     const loadSounds = async () => {
@@ -349,30 +356,69 @@ export default function Quiz({ navigation, route }) {
     setHelpStepsCompleted(false);
   };
 
+  const lowerMusicVolume = async () => {
+    if (battleMusic) {
+      try {
+        const status = await battleMusic.getStatusAsync();
+        if (status.isLoaded && status.volume !== undefined) {
+          setOriginalMusicVolume(status.volume);
+          await battleMusic.setVolumeAsync(0.2); // Lower to 20%
+          console.log('Battle music volume lowered to 0.2');
+        }
+      } catch (error) {
+        console.log('Error lowering music volume:', error);
+      }
+    }
+  };
+
+  const restoreMusicVolume = async () => {
+    if (battleMusic) {
+      try {
+        await battleMusic.setVolumeAsync(originalMusicVolume);
+        console.log('Battle music volume restored to', originalMusicVolume);
+      } catch (error) {
+        console.log('Error restoring music volume:', error);
+      }
+    }
+  };
+
   const speakText = async (text) => {
     // Stop any ongoing speech
     await Speech.stop();
     setIsSpeaking(true);
     
+    // Lower music volume when speech starts
+    await lowerMusicVolume();
+    
     Speech.speak(text, {
       language: 'en',
       pitch: 1.0,
       rate: 0.85,
-      onDone: () => setIsSpeaking(false),
-      onStopped: () => setIsSpeaking(false),
-      onError: () => setIsSpeaking(false),
+      onDone: async () => {
+        setIsSpeaking(false);
+        await restoreMusicVolume();
+      },
+      onStopped: async () => {
+        setIsSpeaking(false);
+        await restoreMusicVolume();
+      },
+      onError: async () => {
+        setIsSpeaking(false);
+        await restoreMusicVolume();
+      },
     });
   };
 
   const handleHelpNext = async () => {
     // Stop speech when moving to next step
     await Speech.stop();
+    await restoreMusicVolume();
     setIsSpeaking(false);
     
     if (currentHelpStep < currentHelpSteps.length - 1) {
       const nextStep = currentHelpStep + 1;
       setCurrentHelpStep(nextStep);
-      // Don't auto-play speech on next
+      // Auto-play speech will be triggered by useEffect
     } else {
       setHelpModalVisible(false);
       setCurrentHelpStep(0);
@@ -383,18 +429,20 @@ export default function Quiz({ navigation, route }) {
   const handleHelpPrevious = async () => {
     // Stop speech when moving to previous step
     await Speech.stop();
+    await restoreMusicVolume();
     setIsSpeaking(false);
     
     if (currentHelpStep > 0) {
       const prevStep = currentHelpStep - 1;
       setCurrentHelpStep(prevStep);
-      // Don't auto-play speech on previous
+      // Auto-play speech will be triggered by useEffect
     }
   };
 
   const handleHelpClose = async () => {
     if (currentHelpStep === currentHelpSteps.length - 1) {
       await Speech.stop();
+      await restoreMusicVolume();
       setHelpModalVisible(false);
       setCurrentHelpStep(0);
       setHelpStepsCompleted(true);
@@ -842,7 +890,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     alignItems: "center",
-    paddingBottom: verticalScale(30),
+    paddingBottom: verticalScale(150),
     minHeight: height - verticalScale(185),
   },
   quizCard: {
@@ -851,7 +899,7 @@ const styles = StyleSheet.create({
     maxWidth: "88%",
     backgroundColor: "#fff",
     borderRadius: moderateScale(20),
-    padding: moderateScale(16),
+    padding: moderateScale(12),
     alignItems: "center",
     elevation: 12,
     shadowColor: "#000",
@@ -860,12 +908,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     borderWidth: moderateScale(3),
     borderColor: "#FFA85C",
-    marginBottom: verticalScale(20),
+    marginBottom: verticalScale(10),
   },
   cardHeader: {
     width: "100%",
-    marginBottom: verticalScale(12),
-    paddingBottom: verticalScale(10),
+    marginBottom: verticalScale(8),
+    paddingBottom: verticalScale(8),
     borderBottomWidth: moderateScale(2),
     borderBottomColor: "#f0f0f0",
   },
@@ -876,7 +924,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   questionContainer: {
-    padding: moderateScale(10),
+    padding: moderateScale(6),
     alignItems: "center",
   },
   questionText: {
@@ -889,19 +937,19 @@ const styles = StyleSheet.create({
   imageContainer: {
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: verticalScale(8),
+    marginVertical: verticalScale(4),
   },
   quizImage: {
     width: isDesktop ? Math.min(scale(260), 400) : scale(260),
-    height: isDesktop ? Math.min(verticalScale(160), 250) : verticalScale(160),
+    height: isDesktop ? Math.min(verticalScale(120), 180) : verticalScale(120),
     borderRadius: moderateScale(14),
-    marginBottom: verticalScale(12),
+    marginBottom: verticalScale(8),
   },
   answersContainer: {
     width: "100%",
     paddingHorizontal: scale(20),
-    marginTop: verticalScale(10),
-    marginBottom: verticalScale(20),
+    marginTop: verticalScale(8),
+    marginBottom: verticalScale(8),
   },
   answersRow: {
     flexDirection: "row",
@@ -964,12 +1012,13 @@ const styles = StyleSheet.create({
   feedbackContainer: {
     width: "100%",
     paddingHorizontal: scale(20),
-    marginTop: verticalScale(10),
+    marginTop: verticalScale(5),
+    marginBottom: verticalScale(40),
     zIndex: 100,
   },
   feedbackCard: {
     borderRadius: moderateScale(20),
-    padding: moderateScale(20),
+    padding: moderateScale(16),
     alignItems: "center",
     elevation: 16,
     shadowColor: "#000",
@@ -987,20 +1036,20 @@ const styles = StyleSheet.create({
     borderColor: "#FF6B6B",
   },
   feedbackIcon: {
-    fontSize: moderateScale(40),
-    marginBottom: verticalScale(6),
+    fontSize: moderateScale(32),
+    marginBottom: verticalScale(4),
   },
   feedbackTitle: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(18),
     color: "#222",
-    marginBottom: verticalScale(4),
+    marginBottom: verticalScale(2),
   },
   feedbackSubtext: {
     fontFamily: "Poppins-Regular",
-    fontSize: moderateScale(12),
+    fontSize: moderateScale(11),
     color: "#666",
-    marginBottom: verticalScale(12),
+    marginBottom: verticalScale(8),
     textAlign: "center",
   },
   actionBtn: {
