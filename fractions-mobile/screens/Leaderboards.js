@@ -14,25 +14,51 @@ import {
 } from "react-native";
 import { supabase, DatabaseService } from "../supabase";
 
-const { width, height } = Dimensions.get("window");
+// Get initial dimensions
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-// Responsive scaling functions
-const scale = (size) => (width / 375) * size;
-const verticalScale = (size) => (height / 812) * size;
+// Responsive scaling functions with better base calculations
+const guidelineBaseWidth = 375;
+const guidelineBaseHeight = 812;
+
+const scale = (size) => (SCREEN_WIDTH / guidelineBaseWidth) * size;
+const verticalScale = (size) => (SCREEN_HEIGHT / guidelineBaseHeight) * size;
 const moderateScale = (size, factor = 0.5) =>
   size + (scale(size) - size) * factor;
+
+// Dynamic dimensions hook for orientation changes
+const useDimensions = () => {
+  const [dimensions, setDimensions] = React.useState({
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+  });
+
+  React.useEffect(() => {
+    const subscription = Dimensions.addEventListener("change", ({ window }) => {
+      setDimensions({ width: window.width, height: window.height });
+    });
+    return () => subscription?.remove();
+  }, []);
+
+  return dimensions;
+};
+
+// Check if device is small screen
+const isSmallDevice = SCREEN_HEIGHT < 700;
 
 export default function Leaderboard({ navigation }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const dimensions = useDimensions();
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const sparkleAnim = useRef(new Animated.Value(0)).current;
   const modalScale = useRef(new Animated.Value(0.8)).current;
   const modalOpacity = useRef(new Animated.Value(0)).current;
+  const modalTranslateY = useRef(new Animated.Value(50)).current;
 
   const characters = [
     require("../assets/chara1.png"),
@@ -205,17 +231,28 @@ export default function Leaderboard({ navigation }) {
     setSelectedStudent(student);
     setModalVisible(true);
 
-    // Animate modal entrance
+    // Reset animation values
+    modalScale.setValue(0.8);
+    modalOpacity.setValue(0);
+    modalTranslateY.setValue(50);
+
+    // Animate modal entrance with slide up effect
     Animated.parallel([
       Animated.spring(modalScale, {
         toValue: 1,
-        tension: 50,
-        friction: 7,
+        tension: 65,
+        friction: 8,
         useNativeDriver: true,
       }),
       Animated.timing(modalOpacity, {
         toValue: 1,
-        duration: 300,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.spring(modalTranslateY, {
+        toValue: 0,
+        tension: 65,
+        friction: 8,
         useNativeDriver: true,
       }),
     ]).start();
@@ -224,13 +261,18 @@ export default function Leaderboard({ navigation }) {
   const closeModal = () => {
     Animated.parallel([
       Animated.timing(modalScale, {
-        toValue: 0.8,
-        duration: 200,
+        toValue: 0.9,
+        duration: 150,
         useNativeDriver: true,
       }),
       Animated.timing(modalOpacity, {
         toValue: 0,
-        duration: 200,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(modalTranslateY, {
+        toValue: 30,
+        duration: 150,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -316,10 +358,16 @@ export default function Leaderboard({ navigation }) {
   );
 
   const getItemLayout = (data, index) => ({
-    length: verticalScale(120),
-    offset: verticalScale(120) * index,
+    length: isSmallDevice ? verticalScale(100) : verticalScale(110),
+    offset: (isSmallDevice ? verticalScale(100) : verticalScale(110)) * index,
     index,
   });
+
+  // Memoized key extractor
+  const keyExtractor = React.useCallback(
+    (item) => item.user_id || item.id?.toString(),
+    []
+  );
 
   return (
     <View style={styles.container}>
@@ -381,27 +429,29 @@ export default function Leaderboard({ navigation }) {
           ) : (
             <FlatList
               data={students}
-              keyExtractor={(item) => item.user_id || item.id}
+              keyExtractor={keyExtractor}
               renderItem={renderStudentCard}
               ListHeaderComponent={renderListHeader}
               ListEmptyComponent={renderListEmpty}
               contentContainerStyle={styles.flatListContent}
               showsVerticalScrollIndicator={false}
-              initialNumToRender={10}
-              maxToRenderPerBatch={10}
-              windowSize={10}
-              removeClippedSubviews={true}
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+              removeClippedSubviews={Platform.OS === "android"}
               getItemLayout={getItemLayout}
+              updateCellsBatchingPeriod={50}
             />
           )}
         </Animated.View>
 
-        {/* Student detail modal */}
+        {/* Student detail modal - Compact version */}
         <Modal
           visible={modalVisible}
           transparent
           animationType="none"
           onRequestClose={closeModal}
+          statusBarTranslucent
         >
           <TouchableOpacity
             style={styles.modalOverlay}
@@ -413,139 +463,151 @@ export default function Leaderboard({ navigation }) {
                 styles.modalContent,
                 {
                   opacity: modalOpacity,
-                  transform: [{ scale: modalScale }],
+                  transform: [
+                    { scale: modalScale },
+                    { translateY: modalTranslateY },
+                  ],
                 },
               ]}
             >
-              {selectedStudent && (
-                <View style={styles.modalInner}>
-                  {/* Close button */}
-                  <TouchableOpacity
-                    style={styles.closeButton}
-                    onPress={closeModal}
-                  >
-                    <Text style={styles.closeButtonText}>✕</Text>
-                  </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={(e) => e.stopPropagation()}
+              >
+                {selectedStudent && (
+                  <View style={styles.modalInner}>
+                    {/* Close button */}
+                    <TouchableOpacity
+                      style={styles.closeButton}
+                      onPress={closeModal}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Text style={styles.closeButtonText}>✕</Text>
+                    </TouchableOpacity>
 
-                  {/* Rank badge */}
-                  <View
-                    style={[
-                      styles.modalRankBadge,
-                      { backgroundColor: getRankColor(selectedStudent.rank) },
-                    ]}
-                  >
-                    <Text style={styles.modalRankEmoji}>
-                      {getRankEmoji(selectedStudent.rank)}
-                    </Text>
-                    <Text style={styles.modalRankText}>
-                      Rank #{selectedStudent.rank}
-                    </Text>
-                  </View>
-
-                  {/* Character */}
-                  <View style={styles.modalCharacterContainer}>
-                    <Image
-                      source={
-                        characters[selectedStudent.selected_character || 0]
-                      }
-                      style={styles.modalCharacterImage}
-                    />
-                  </View>
-
-                  {/* Student name */}
-                  <Text style={styles.modalStudentName}>
-                    {selectedStudent.full_name ||
-                      selectedStudent.username ||
-                      "Student"}
-                  </Text>
-
-                  {/* Stats grid */}
-                  <View style={styles.modalStatsGrid}>
-                    <View style={styles.modalStatCard}>
-                      <Text style={styles.modalStatIcon}>🎯</Text>
-                      <Text style={styles.modalStatValue}>
-                        {selectedStudent.current_level || 1}
-                      </Text>
-                      <Text style={styles.modalStatLabel}>Current Level</Text>
+                    {/* Compact header with character and rank */}
+                    <View style={styles.modalHeader}>
+                      <View style={styles.modalCharacterContainer}>
+                        <Image
+                          source={
+                            characters[selectedStudent.selected_character || 0]
+                          }
+                          style={styles.modalCharacterImage}
+                        />
+                        <View
+                          style={[
+                            styles.modalRankBadgeSmall,
+                            {
+                              backgroundColor: getRankColor(
+                                selectedStudent.rank
+                              ),
+                            },
+                          ]}
+                        >
+                          <Text style={styles.modalRankEmojiSmall}>
+                            {getRankEmoji(selectedStudent.rank)}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.modalHeaderInfo}>
+                        <Text style={styles.modalStudentName} numberOfLines={1}>
+                          {selectedStudent.full_name ||
+                            selectedStudent.username ||
+                            "Student"}
+                        </Text>
+                        <Text style={styles.modalRankLabel}>
+                          Rank #{selectedStudent.rank}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={styles.modalStatCard}>
-                      <Text style={styles.modalStatIcon}>⭐</Text>
-                      <Text style={styles.modalStatValue}>
-                        {selectedStudent.totalStages}
-                      </Text>
-                      <Text style={styles.modalStatLabel}>Stages Done</Text>
-                    </View>
-                    <View style={styles.modalStatCard}>
-                      <Text style={styles.modalStatIcon}>🏆</Text>
-                      <Text style={styles.modalStatValue}>
-                        {selectedStudent.total_score || 0}
-                      </Text>
-                      <Text style={styles.modalStatLabel}>Total Score</Text>
-                    </View>
-                    <View style={styles.modalStatCard}>
-                      <Text style={styles.modalStatIcon}>🔄</Text>
-                      <Text style={styles.modalStatValue}>
-                        {selectedStudent.total_attempts || 0}
-                      </Text>
-                      <Text style={styles.modalStatLabel}>Attempts</Text>
-                    </View>
-                  </View>
 
-                  {/* Progress section */}
-                  <View style={styles.modalProgressSection}>
-                    <Text style={styles.modalProgressTitle}>
-                      Overall Progress
-                    </Text>
-                    <View style={styles.modalProgressBar}>
-                      <View
-                        style={[
-                          styles.modalProgressBarFill,
-                          { width: `${selectedStudent.progress}%` },
-                        ]}
-                      />
+                    {/* Compact stats row */}
+                    <View style={styles.modalStatsRow}>
+                      <View style={styles.modalStatItem}>
+                        <Text style={styles.modalStatIcon}>🎯</Text>
+                        <Text style={styles.modalStatValue}>
+                          {selectedStudent.current_level || 1}
+                        </Text>
+                        <Text style={styles.modalStatLabel}>Level</Text>
+                      </View>
+                      <View style={styles.modalStatDivider} />
+                      <View style={styles.modalStatItem}>
+                        <Text style={styles.modalStatIcon}>⭐</Text>
+                        <Text style={styles.modalStatValue}>
+                          {selectedStudent.totalStages}
+                        </Text>
+                        <Text style={styles.modalStatLabel}>Stages</Text>
+                      </View>
+                      <View style={styles.modalStatDivider} />
+                      <View style={styles.modalStatItem}>
+                        <Text style={styles.modalStatIcon}>🏆</Text>
+                        <Text style={styles.modalStatValue}>
+                          {selectedStudent.total_score || 0}
+                        </Text>
+                        <Text style={styles.modalStatLabel}>Score</Text>
+                      </View>
+                      <View style={styles.modalStatDivider} />
+                      <View style={styles.modalStatItem}>
+                        <Text style={styles.modalStatIcon}>🔄</Text>
+                        <Text style={styles.modalStatValue}>
+                          {selectedStudent.total_attempts || 0}
+                        </Text>
+                        <Text style={styles.modalStatLabel}>Tries</Text>
+                      </View>
                     </View>
-                    <Text style={styles.modalProgressText}>
-                      {selectedStudent.progress}% Complete
-                    </Text>
-                  </View>
 
-                  {/* Level details */}
-                  <View style={styles.levelDetailsSection}>
-                    <Text style={styles.levelDetailsTitle}>Level Progress</Text>
-                    {[1, 2, 3].map((level) => {
-                      const levelData = selectedStudent[`level_${level}`];
-                      const isUnlocked = levelData && levelData.unlocked;
-                      const completedStages = levelData?.completed_stages || 0;
+                    {/* Compact progress section */}
+                    <View style={styles.modalProgressSection}>
+                      <View style={styles.modalProgressHeader}>
+                        <Text style={styles.modalProgressTitle}>Progress</Text>
+                        <Text style={styles.modalProgressPercent}>
+                          {selectedStudent.progress}%
+                        </Text>
+                      </View>
+                      <View style={styles.modalProgressBar}>
+                        <View
+                          style={[
+                            styles.modalProgressBarFill,
+                            { width: `${selectedStudent.progress}%` },
+                          ]}
+                        />
+                      </View>
+                    </View>
 
-                      return (
-                        <View key={level} style={styles.levelDetailRow}>
+                    {/* Compact level indicators */}
+                    <View style={styles.levelIndicatorsRow}>
+                      {[1, 2, 3].map((level) => {
+                        const levelData = selectedStudent[`level_${level}`];
+                        const isUnlocked = levelData && levelData.unlocked;
+                        const completedStages =
+                          levelData?.completed_stages || 0;
+
+                        return (
                           <View
+                            key={level}
                             style={[
-                              styles.levelBadge,
+                              styles.levelIndicator,
                               isUnlocked
-                                ? styles.levelBadgeUnlocked
-                                : styles.levelBadgeLocked,
+                                ? styles.levelIndicatorUnlocked
+                                : styles.levelIndicatorLocked,
                             ]}
                           >
-                            <Text style={styles.levelBadgeText}>L{level}</Text>
-                          </View>
-                          <View style={styles.levelDetailInfo}>
-                            <Text style={styles.levelDetailText}>
-                              Level {level} {isUnlocked ? "" : "🔒"}
+                            <Text style={styles.levelIndicatorText}>
+                              L{level}
                             </Text>
-                            <Text style={styles.levelDetailSubtext}>
-                              {completedStages}/2 stages completed
+                            <Text style={styles.levelIndicatorStages}>
+                              {completedStages}/2
                             </Text>
+                            {!isUnlocked && (
+                              <Text style={styles.levelLockIcon}>🔒</Text>
+                            )}
                           </View>
-                          {isUnlocked && (
-                            <Text style={styles.levelCheckmark}>✓</Text>
-                          )}
-                        </View>
-                      );
-                    })}
+                        );
+                      })}
+                    </View>
                   </View>
-                </View>
-              )}
+                )}
+              </TouchableOpacity>
             </Animated.View>
           </TouchableOpacity>
         </Modal>
@@ -683,55 +745,55 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: Platform.OS === "ios" ? verticalScale(50) : verticalScale(40),
-    paddingHorizontal: scale(20),
-    paddingBottom: verticalScale(20),
+    paddingTop: Platform.OS === "ios" ? verticalScale(50) : verticalScale(35),
+    paddingHorizontal: scale(16),
+    paddingBottom: verticalScale(12),
   },
   backButton: {
-    width: moderateScale(48),
-    height: moderateScale(48),
-    borderRadius: moderateScale(24),
+    width: moderateScale(44),
+    height: moderateScale(44),
+    borderRadius: moderateScale(22),
     backgroundColor: "#fff",
     justifyContent: "center",
     alignItems: "center",
-    elevation: 8,
+    elevation: 6,
     shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    borderWidth: moderateScale(3),
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    borderWidth: moderateScale(2.5),
     borderColor: "#FFA85C",
   },
   backButtonText: {
-    fontSize: moderateScale(24),
+    fontSize: moderateScale(22),
     color: "#FFA85C",
     fontWeight: "bold",
   },
   headerTitle: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(24),
+    fontSize: moderateScale(isSmallDevice ? 20 : 24),
     color: "#fff",
     textShadowColor: "rgba(0, 0, 0, 0.5)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
   },
   placeholder: {
-    width: moderateScale(48),
+    width: moderateScale(44),
   },
   content: {
     flex: 1,
   },
   flatListContent: {
-    paddingHorizontal: scale(20),
-    paddingBottom: verticalScale(40),
+    paddingHorizontal: scale(16),
+    paddingBottom: verticalScale(30),
   },
   sectionHeader: {
-    marginBottom: verticalScale(16),
-    marginTop: verticalScale(8),
+    marginBottom: verticalScale(12),
+    marginTop: verticalScale(6),
   },
   sectionTitle: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(isSmallDevice ? 16 : 18),
     color: "#fff",
     textShadowColor: "rgba(0, 0, 0, 0.5)",
     textShadowOffset: { width: 0, height: 2 },
@@ -739,66 +801,66 @@ const styles = StyleSheet.create({
   },
   sectionSubtitle: {
     fontFamily: "Poppins-Regular",
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(12),
     color: "rgba(255, 255, 255, 0.8)",
-    marginTop: verticalScale(4),
+    marginTop: verticalScale(2),
   },
   studentCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fff",
-    borderRadius: moderateScale(20),
-    padding: moderateScale(12),
-    marginBottom: verticalScale(12),
-    elevation: 6,
+    borderRadius: moderateScale(16),
+    padding: moderateScale(isSmallDevice ? 10 : 12),
+    marginBottom: verticalScale(10),
+    elevation: 5,
     shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
     borderWidth: moderateScale(2),
     borderColor: "#e0e0e0",
   },
   topStudentCard: {
-    elevation: 10,
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    borderWidth: moderateScale(3),
+    elevation: 8,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    borderWidth: moderateScale(2.5),
   },
   podiumCard: {
     borderColor: "#FFD700",
   },
   rankBadge: {
-    width: moderateScale(50),
-    height: moderateScale(50),
-    borderRadius: moderateScale(25),
+    width: moderateScale(isSmallDevice ? 42 : 48),
+    height: moderateScale(isSmallDevice ? 42 : 48),
+    borderRadius: moderateScale(isSmallDevice ? 21 : 24),
     justifyContent: "center",
     alignItems: "center",
-    marginRight: scale(12),
-    elevation: 4,
+    marginRight: scale(10),
+    elevation: 3,
     shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
-    borderWidth: moderateScale(3),
+    borderWidth: moderateScale(2.5),
     borderColor: "#fff",
   },
   rankEmoji: {
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(14),
   },
   rankText: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(12),
     color: "#fff",
     textShadowColor: "rgba(0, 0, 0, 0.3)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
   characterWrapper: {
-    width: moderateScale(60),
-    height: moderateScale(60),
-    marginRight: scale(12),
+    width: moderateScale(isSmallDevice ? 48 : 54),
+    height: moderateScale(isSmallDevice ? 48 : 54),
+    marginRight: scale(10),
     backgroundColor: "#f8f8f8",
-    borderRadius: moderateScale(30),
+    borderRadius: moderateScale(isSmallDevice ? 24 : 27),
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
@@ -806,8 +868,8 @@ const styles = StyleSheet.create({
     borderColor: "#e0e0e0",
   },
   characterImage: {
-    width: moderateScale(50),
-    height: moderateScale(50),
+    width: moderateScale(isSmallDevice ? 40 : 46),
+    height: moderateScale(isSmallDevice ? 40 : 46),
     resizeMode: "contain",
   },
   studentInfo: {
@@ -815,60 +877,63 @@ const styles = StyleSheet.create({
   },
   studentName: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(isSmallDevice ? 14 : 15),
     color: "#222",
-    marginBottom: verticalScale(4),
+    marginBottom: verticalScale(3),
   },
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: verticalScale(8),
+    marginBottom: verticalScale(6),
   },
   statItem: {
     alignItems: "center",
+    minWidth: scale(40),
   },
   statLabel: {
     fontFamily: "Poppins-Regular",
-    fontSize: moderateScale(10),
+    fontSize: moderateScale(9),
     color: "#888",
   },
   statValue: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(12),
     color: "#222",
   },
   statDivider: {
     width: 1,
-    height: moderateScale(24),
+    height: moderateScale(20),
     backgroundColor: "#e0e0e0",
-    marginHorizontal: scale(8),
+    marginHorizontal: scale(6),
   },
   progressBarContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(8),
+    gap: scale(6),
   },
   progressBar: {
     flex: 1,
-    height: verticalScale(8),
+    height: verticalScale(6),
     backgroundColor: "#e0e0e0",
-    borderRadius: moderateScale(4),
+    borderRadius: moderateScale(3),
     overflow: "hidden",
   },
   progressBarFill: {
     height: "100%",
     backgroundColor: "#4CAF50",
-    borderRadius: moderateScale(4),
+    borderRadius: moderateScale(3),
   },
   progressText: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(12),
+    fontSize: moderateScale(11),
     color: "#4CAF50",
+    minWidth: scale(32),
+    textAlign: "right",
   },
   arrowIcon: {
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(18),
     color: "#FFA85C",
-    marginLeft: scale(8),
+    marginLeft: scale(6),
   },
   loadingContainer: {
     alignItems: "center",
@@ -877,7 +942,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(14),
     color: "#fff",
     textShadowColor: "rgba(0, 0, 0, 0.5)",
     textShadowOffset: { width: 0, height: 2 },
@@ -886,20 +951,20 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: verticalScale(60),
+    paddingVertical: verticalScale(50),
   },
   emptyText: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(18),
     color: "#fff",
     textShadowColor: "rgba(0, 0, 0, 0.5)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
-    marginBottom: verticalScale(8),
+    marginBottom: verticalScale(6),
   },
   emptySubtext: {
     fontFamily: "Poppins-Regular",
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(13),
     color: "rgba(255, 255, 255, 0.8)",
   },
   sparkle: {
@@ -907,221 +972,205 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   sparkleText: {
-    fontSize: moderateScale(32),
+    fontSize: moderateScale(28),
   },
 
-  // Modal styles
+  // Modal styles - Compact version
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
     justifyContent: "center",
     alignItems: "center",
-    padding: scale(20),
+    padding: scale(16),
   },
   modalContent: {
     width: "100%",
-    maxWidth: scale(380),
+    maxWidth: scale(340),
   },
   modalInner: {
     backgroundColor: "#fff",
-    borderRadius: moderateScale(28),
-    padding: moderateScale(24),
-    elevation: 20,
+    borderRadius: moderateScale(20),
+    padding: moderateScale(16),
+    elevation: 15,
     shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    borderWidth: moderateScale(4),
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 8 },
+    borderWidth: moderateScale(3),
     borderColor: "#FFA85C",
   },
   closeButton: {
     position: "absolute",
-    top: moderateScale(16),
-    right: moderateScale(16),
-    width: moderateScale(36),
-    height: moderateScale(36),
-    borderRadius: moderateScale(18),
+    top: moderateScale(10),
+    right: moderateScale(10),
+    width: moderateScale(30),
+    height: moderateScale(30),
+    borderRadius: moderateScale(15),
     backgroundColor: "#f0f0f0",
     justifyContent: "center",
     alignItems: "center",
     zIndex: 10,
   },
   closeButtonText: {
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(16),
     color: "#666",
     fontWeight: "bold",
   },
-  modalRankBadge: {
-    alignSelf: "center",
-    paddingHorizontal: scale(24),
-    paddingVertical: verticalScale(12),
-    borderRadius: moderateScale(20),
-    marginBottom: verticalScale(20),
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  modalRankEmoji: {
-    fontSize: moderateScale(32),
-    textAlign: "center",
-    marginBottom: verticalScale(4),
-  },
-  modalRankText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(18),
-    color: "#fff",
-    textAlign: "center",
-    textShadowColor: "rgba(0, 0, 0, 0.3)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 3,
+  // Compact modal header
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: verticalScale(14),
+    paddingRight: scale(30),
   },
   modalCharacterContainer: {
-    alignSelf: "center",
-    width: moderateScale(120),
-    height: moderateScale(120),
+    width: moderateScale(70),
+    height: moderateScale(70),
     backgroundColor: "#f8f8f8",
-    borderRadius: moderateScale(60),
+    borderRadius: moderateScale(35),
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: verticalScale(16),
-    borderWidth: moderateScale(4),
+    borderWidth: moderateScale(3),
     borderColor: "#e0e0e0",
+    position: "relative",
   },
   modalCharacterImage: {
-    width: moderateScale(100),
-    height: moderateScale(100),
+    width: moderateScale(56),
+    height: moderateScale(56),
     resizeMode: "contain",
+  },
+  modalRankBadgeSmall: {
+    position: "absolute",
+    bottom: -moderateScale(4),
+    right: -moderateScale(4),
+    width: moderateScale(28),
+    height: moderateScale(28),
+    borderRadius: moderateScale(14),
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: moderateScale(2),
+    borderColor: "#fff",
+  },
+  modalRankEmojiSmall: {
+    fontSize: moderateScale(14),
+  },
+  modalHeaderInfo: {
+    flex: 1,
+    marginLeft: scale(14),
   },
   modalStudentName: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(24),
+    fontSize: moderateScale(18),
     color: "#222",
-    textAlign: "center",
-    marginBottom: verticalScale(20),
+    marginBottom: verticalScale(2),
   },
-  modalStatsGrid: {
+  modalRankLabel: {
+    fontFamily: "Poppins-Bold",
+    fontSize: moderateScale(13),
+    color: "#FFA85C",
+  },
+  // Compact stats row
+  modalStatsRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: verticalScale(24),
-    gap: scale(12),
-  },
-  modalStatCard: {
-    width: "48%",
-    backgroundColor: "#f8f8f8",
-    borderRadius: moderateScale(16),
-    padding: moderateScale(16),
     alignItems: "center",
-    borderWidth: moderateScale(2),
-    borderColor: "#e0e0e0",
+    justifyContent: "space-between",
+    backgroundColor: "#f8f8f8",
+    borderRadius: moderateScale(12),
+    padding: moderateScale(12),
+    marginBottom: verticalScale(12),
+  },
+  modalStatItem: {
+    alignItems: "center",
+    flex: 1,
   },
   modalStatIcon: {
-    fontSize: moderateScale(32),
-    marginBottom: verticalScale(8),
+    fontSize: moderateScale(20),
+    marginBottom: verticalScale(2),
   },
   modalStatValue: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(24),
+    fontSize: moderateScale(16),
     color: "#222",
-    marginBottom: verticalScale(4),
   },
   modalStatLabel: {
     fontFamily: "Poppins-Regular",
-    fontSize: moderateScale(12),
+    fontSize: moderateScale(10),
     color: "#888",
-    textAlign: "center",
   },
+  modalStatDivider: {
+    width: 1,
+    height: moderateScale(36),
+    backgroundColor: "#e0e0e0",
+  },
+  // Compact progress section
   modalProgressSection: {
-    marginBottom: verticalScale(24),
-    paddingTop: verticalScale(16),
-    borderTopWidth: moderateScale(2),
-    borderTopColor: "#f0f0f0",
+    marginBottom: verticalScale(12),
+  },
+  modalProgressHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: verticalScale(6),
   },
   modalProgressTitle: {
     fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(13),
     color: "#222",
-    marginBottom: verticalScale(12),
+  },
+  modalProgressPercent: {
+    fontFamily: "Poppins-Bold",
+    fontSize: moderateScale(13),
+    color: "#4CAF50",
   },
   modalProgressBar: {
-    height: verticalScale(12),
+    height: verticalScale(10),
     backgroundColor: "#e0e0e0",
-    borderRadius: moderateScale(6),
+    borderRadius: moderateScale(5),
     overflow: "hidden",
-    marginBottom: verticalScale(8),
   },
   modalProgressBarFill: {
     height: "100%",
     backgroundColor: "#4CAF50",
-    borderRadius: moderateScale(6),
+    borderRadius: moderateScale(5),
   },
-  modalProgressText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(14),
-    color: "#4CAF50",
-    textAlign: "center",
-  },
-  levelDetailsSection: {
-    paddingTop: verticalScale(16),
-    borderTopWidth: moderateScale(2),
-    borderTopColor: "#f0f0f0",
-  },
-  levelDetailsTitle: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(16),
-    color: "#222",
-    marginBottom: verticalScale(12),
-  },
-  levelDetailRow: {
+  // Compact level indicators
+  levelIndicatorsRow: {
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f8f8f8",
-    borderRadius: moderateScale(12),
-    padding: moderateScale(12),
-    marginBottom: verticalScale(8),
-    borderWidth: moderateScale(2),
-    borderColor: "#e0e0e0",
+    justifyContent: "space-between",
+    gap: scale(8),
   },
-  levelBadge: {
-    width: moderateScale(40),
-    height: moderateScale(40),
-    borderRadius: moderateScale(20),
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: scale(12),
-    borderWidth: moderateScale(2),
-  },
-  levelBadgeUnlocked: {
-    backgroundColor: "#4CAF50",
-    borderColor: "#2e7d32",
-  },
-  levelBadgeLocked: {
-    backgroundColor: "#ccc",
-    borderColor: "#999",
-  },
-  levelBadgeText: {
-    fontFamily: "Poppins-Bold",
-    fontSize: moderateScale(14),
-    color: "#fff",
-  },
-  levelDetailInfo: {
+  levelIndicator: {
     flex: 1,
+    alignItems: "center",
+    paddingVertical: verticalScale(10),
+    paddingHorizontal: scale(8),
+    borderRadius: moderateScale(12),
+    borderWidth: moderateScale(2),
+    position: "relative",
   },
-  levelDetailText: {
+  levelIndicatorUnlocked: {
+    backgroundColor: "#E8F5E9",
+    borderColor: "#4CAF50",
+  },
+  levelIndicatorLocked: {
+    backgroundColor: "#f5f5f5",
+    borderColor: "#ccc",
+  },
+  levelIndicatorText: {
     fontFamily: "Poppins-Bold",
     fontSize: moderateScale(14),
     color: "#222",
-    marginBottom: verticalScale(2),
   },
-  levelDetailSubtext: {
+  levelIndicatorStages: {
     fontFamily: "Poppins-Regular",
-    fontSize: moderateScale(12),
-    color: "#888",
+    fontSize: moderateScale(11),
+    color: "#666",
+    marginTop: verticalScale(2),
   },
-  levelCheckmark: {
-    fontSize: moderateScale(24),
-    color: "#4CAF50",
+  levelLockIcon: {
+    position: "absolute",
+    top: moderateScale(4),
+    right: moderateScale(4),
+    fontSize: moderateScale(10),
   },
 });
