@@ -384,7 +384,11 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         return;
       }
 
+      // Save current teacher session before creating student
+      const { data: { session: teacherSession } } = await supabase.auth.getSession();
+      
       // Create auth user using regular signUp (not admin API)
+      // WARNING: This will replace the current session with the student's session
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: mail,
         password: pwd,
@@ -404,6 +408,15 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         alert("Error creating auth account: " + authError.message);
         setLoading(false);
         return;
+      }
+
+      // IMPORTANT: Sign out the student and restore teacher session
+      await supabase.auth.signOut();
+      if (teacherSession) {
+        await supabase.auth.setSession({
+          access_token: teacherSession.access_token,
+          refresh_token: teacherSession.refresh_token,
+        });
       }
 
       // Wait a moment for the trigger to process
