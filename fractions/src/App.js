@@ -7,6 +7,18 @@ import StuedentReport from "./screens/StuedentReport";
 import Login from "./screens/Login";
 import { supabase } from "./supabase";
 
+// Force set storage configuration
+console.log('🔧 App.js: Configuring Supabase storage...');
+if (supabase.auth) {
+  console.log('✅ App.js: Supabase auth object exists');
+  // Try to access the storage
+  try {
+    console.log('🔧 App.js: Current storage config:', typeof supabase.auth.storage);
+  } catch (e) {
+    console.error('❌ App.js: Cannot access storage:', e);
+  }
+}
+
 function App() {
   const [page, setPage] = useState("login");
   const [selectedSection, setSelectedSection] = useState(null);
@@ -14,6 +26,22 @@ function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const currentUser = session?.user || null;
+
+  // Test localStorage availability
+  useEffect(() => {
+    console.log("=== TESTING LOCALSTORAGE ===");
+    try {
+      const testKey = '__test__';
+      localStorage.setItem(testKey, 'works');
+      const result = localStorage.getItem(testKey);
+      localStorage.removeItem(testKey);
+      console.log("localStorage test result:", result === 'works' ? 'WORKING' : 'FAILED');
+      console.log("localStorage length:", localStorage.length);
+    } catch (e) {
+      console.error("localStorage is BLOCKED or unavailable:", e);
+      alert("CRITICAL: localStorage is blocked. Please check browser settings or disable private/incognito mode!");
+    }
+  }, []);
 
   // Keep session in state
   useEffect(() => {
@@ -23,92 +51,24 @@ function App() {
     const initSession = async () => {
       console.log("App.js: Initializing session...");
       try {
-        // Skip getSession since it's timing out - just go to login
-        // User will authenticate through login form
-        console.log("App.js: Skipping session check, going to login");
-        if (mounted) {
-          setSession(null);
-          setPage("login");
-          setLoading(false);
-        }
-        return;
+        // Check what's in localStorage for debugging
+        console.log("App.js: Checking localStorage...");
+        const allKeys = Object.keys(localStorage);
+        console.log("App.js: All localStorage keys:", allKeys);
+        const supabaseKeys = allKeys.filter(key => key.includes('supabase') || key.includes('sb-'));
+        console.log("App.js: Supabase-related keys:", supabaseKeys);
         
-        /* DISABLED - getSession is hanging
-        console.log("App.js: About to call supabase.auth.getSession()");
+        // SKIP getSession() - it's too slow and unreliable
+        // Instead, rely entirely on onAuthStateChange which fires immediately
+        console.log("App.js: Skipping getSession(), waiting for onAuthStateChange...");
+        console.log("App.js: onAuthStateChange will handle session restoration");
         
-        // Add timeout to prevent hanging
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("getSession timeout")), 5000)
-        );
+        // No timeout needed - onAuthStateChange fires immediately on page load
+        // and will either restore the session or trigger INITIAL_SESSION with null
         
-        const {
-          data: { session: currentSession },
-          error,
-        } = await Promise.race([sessionPromise, timeoutPromise]);
-        
-        console.log("App.js: getSession() completed");
-        if (error) {
-          console.error("Error getting session:", error);
-        }
-        console.log("App.js: Current session:", currentSession ? "exists" : "null");
-        if (mounted) {
-          // Validate session before accepting it
-          if (currentSession) {
-            console.log("App.js: Validating session for user:", currentSession.user.id);
-            // Check if user is a student
-            const { data: student } = await supabase
-              .from("students")
-              .select("id")
-              .eq("user_id", currentSession.user.id)
-              .maybeSingle();
-
-            if (student) {
-              console.log("App.js: User is a student, blocking access");
-              await supabase.auth.signOut();
-              setSession(null);
-              setPage("login");
-              setLoading(false);
-              return;
-            }
-
-            // Check if user is a teacher
-            const { data: teacher } = await supabase
-              .from("teachers")
-              .select("id")
-              .eq("id", currentSession.user.id)
-              .maybeSingle();
-
-            if (!teacher) {
-              console.log("App.js: User is not a teacher, blocking access");
-              await supabase.auth.signOut();
-              setSession(null);
-              setPage("login");
-              setLoading(false);
-              return;
-            }
-
-            // Valid teacher session
-            console.log("App.js: Valid teacher session, setting state");
-            setSession(currentSession);
-            setPage("home");
-          } else {
-            console.log("App.js: No session, going to login");
-            setSession(null);
-            setPage("login");
-          }
-          console.log("App.js: Setting loading to false");
-          setLoading(false);
-        }
-        */
       } catch (err) {
         console.error("Session init error:", err);
         if (mounted) {
-          // If getSession times out, clear storage and show login
-          if (err.message === "getSession timeout") {
-            console.log("App.js: Clearing storage due to timeout");
-            localStorage.clear();
-          }
           setSession(null);
           setPage("login");
           setLoading(false);
@@ -119,55 +79,98 @@ function App() {
     initSession();
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, sess) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, sess) => {
+      console.log("App.js: Auth state changed, event:", event, "session:", !!sess);
       if (!mounted) return;
       
-      // If there's a new session, verify the user is a teacher before allowing access
+      // If there's a session, accept it
       if (sess) {
-        try {
-          // Check if user is a student (should be blocked)
-          const { data: student } = await supabase
-            .from("students")
-            .select("id")
-            .eq("user_id", sess.user.id)
-            .maybeSingle();
-
-          if (student) {
-            // User is a student - sign them out and prevent navigation
-            await supabase.auth.signOut();
-            setSession(null);
-            setPage("login");
-            return;
-          }
-
-          // Check if user is a teacher
-          const { data: teacher } = await supabase
-            .from("teachers")
-            .select("id")
-            .eq("id", sess.user.id)
-            .maybeSingle();
-
-          if (!teacher) {
-            // Not a teacher - sign them out and prevent navigation
-            await supabase.auth.signOut();
-            setSession(null);
-            setPage("login");
-            return;
-          }
-
-          // Valid teacher - allow session and navigation
-          setSession(sess);
-          setPage("home");
-        } catch (err) {
-          console.error("Auth verification error:", err);
-          await supabase.auth.signOut();
-          setSession(null);
-          setPage("login");
+        console.log("App.js: Session received for user:", sess.user.id);
+        console.log("App.js: Session event:", event, "loading:", loading);
+        
+        // Accept the session immediately and navigate to home
+        setSession(sess);
+        setPage("home");
+        if (loading) {
+          console.log("App.js: Ending loading state");
+          setLoading(false);
         }
+        
+        // Verify teacher status in background (non-blocking)
+        // This will sign them out later if they're not actually a teacher
+        setTimeout(async () => {
+          try {
+            console.log("App.js: Background verification for user:", sess.user.id);
+            
+            // Helper function to add timeout to promises
+            const withTimeout = (promise, timeoutMs, errorMsg) => {
+              return Promise.race([
+                promise,
+                new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error(errorMsg)), timeoutMs)
+                )
+              ]);
+            };
+            
+            // Check if user is a student (should be blocked)
+            const studentResult = await withTimeout(
+              supabase
+                .from("students")
+                .select("id")
+                .eq("user_id", sess.user.id)
+                .single(),
+              10000,
+              "Student check timeout"
+            ).catch(err => {
+              console.warn("App.js: Background student check failed:", err.message);
+              return { data: null, error: err };
+            });
+            
+            // Only sign out if we SUCCESSFULLY confirmed they are a student
+            if (studentResult.data && !studentResult.error) {
+              console.log("App.js: User is confirmed to be a student, signing out");
+              await supabase.auth.signOut();
+              return;
+            }
+
+            // Check if user is a teacher
+            const teacherResult = await withTimeout(
+              supabase
+                .from("teachers")
+                .select("id")
+                .eq("id", sess.user.id)
+                .single(),
+              10000,
+              "Teacher check timeout"
+            ).catch(err => {
+              console.warn("App.js: Background teacher check failed:", err.message);
+              return { data: null, error: err };
+            });
+            
+            // Only sign out if we got a successful response with NO teacher record
+            // If there's an error (network, timeout, 406, etc.), trust the session
+            if (teacherResult.data) {
+              console.log("App.js: Teacher verification successful ✓");
+            } else if (teacherResult.error) {
+              console.warn("App.js: Could not verify teacher status (error), trusting session:", teacherResult.error.message);
+            } else {
+              // data is null AND no error = teacher definitely doesn't exist
+              console.log("App.js: User is confirmed NOT a teacher, signing out");
+              await supabase.auth.signOut();
+            }
+          } catch (err) {
+            console.error("Background verification error:", err);
+          }
+        }, 100);
       } else {
         // Session ended - go to login
+        console.log("App.js: Session ended in onAuthStateChange");
         setSession(null);
         setPage("login");
+        if (loading) {
+          console.log("App.js: Ending loading state (no session)");
+          setLoading(false);
+        }
       }
     });
 

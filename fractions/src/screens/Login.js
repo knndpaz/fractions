@@ -28,7 +28,7 @@ export default function AdminLogin({ onLoggedIn }) {
       });
       
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Login timeout")), 10000)
+        setTimeout(() => reject(new Error("Login timeout")), 15000)
       );
       
       const { data, error } = await Promise.race([loginPromise, timeoutPromise]);
@@ -44,6 +44,11 @@ export default function AdminLogin({ onLoggedIn }) {
       
       const user = data.user;
       console.log("Login: User authenticated:", user.id);
+      console.log("Login: Session created:", !!data.session);
+      if (data.session) {
+        console.log("Login: Session access_token exists:", !!data.session.access_token);
+        console.log("Login: Session expires_at:", data.session.expires_at);
+      }
 
       // Step 2: IMMEDIATELY check if user is a student (should be blocked)
       const { data: student } = await supabase
@@ -82,8 +87,14 @@ export default function AdminLogin({ onLoggedIn }) {
         .eq("id", user.id);
 
       // Step 5: Only call onLoggedIn if user is verified as a teacher
+      console.log("Login: Teacher verified, session should be persisted");
+      console.log("Login: Checking localStorage after login...");
+      const savedSession = localStorage.getItem('supabase.auth.token');
+      console.log("Login: Session saved to localStorage:", !!savedSession);
+      
       setIsLoading(false);
       if (onLoggedIn) {
+        console.log("Login: Calling onLoggedIn callback");
         onLoggedIn();
       }
     } catch (err) {
