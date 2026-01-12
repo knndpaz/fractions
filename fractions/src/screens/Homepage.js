@@ -385,8 +385,10 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
       }
 
       // Save current teacher session before creating student
-      const { data: { session: teacherSession } } = await supabase.auth.getSession();
-      
+      const {
+        data: { session: teacherSession },
+      } = await supabase.auth.getSession();
+
       // Create auth user using regular signUp (not admin API)
       // WARNING: This will replace the current session with the student's session
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -419,8 +421,8 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         });
       }
 
-      // Wait a moment for the trigger to process
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Wait longer for the trigger to process and session to stabilize
+      await new Promise((resolve) => setTimeout(resolve, 1500));
 
       // Insert student record with user_id
       const { data: studentRow, error: studentError } = await supabase
@@ -448,8 +450,9 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           .single();
 
         if (existingStudent) {
-          setStudents((prev) => [...prev, existingStudent]);
+          // Reload all data to ensure consistency
           await loadStudents();
+          await loadSections();
           setStudentName("");
           setStudentUsername("");
           setStudentEmail("");
@@ -461,8 +464,9 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           alert("Error saving student record: " + studentError.message);
         }
       } else {
-        setStudents((prev) => [...prev, studentRow]);
+        // Reload all data to ensure consistency
         await loadStudents();
+        await loadSections();
         setStudentName("");
         setStudentUsername("");
         setStudentEmail("");
@@ -580,10 +584,9 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         }
       }
 
-      if (created.length > 0) {
-        setStudents((prev) => [...prev, ...created]);
-      }
+      // Reload all data from database
       await loadStudents();
+      await loadSections();
 
       // Reset forms
       setMultipleStudents([
@@ -655,7 +658,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
       {/* Test button */}
       <button
         onClick={testSupabaseConnection}
-        className="fixed top-5 right-5 z-40 bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg shadow-lg transition-all"
+        className="fixed top-20 right-5 z-40 bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg shadow-lg transition-all"
       >
         Test DB Connection
       </button>
