@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { flushSync } from "react-dom";
 import { supabase } from "../supabase";
 import {
   Home,
@@ -59,6 +60,13 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
 
   // Teacher data
   const [teacherData, setTeacherData] = useState(null);
+  
+  // Force render key to trigger UI updates
+  const [renderKey, setRenderKey] = useState(0);
+  
+  // Refs to prevent race conditions
+  const isManuallyLoading = useRef(false);
+  const hasInitiallyLoaded = useRef(false);
 
   // Filter students based on search query
   const filteredStudents = students.filter((student) => {
@@ -77,12 +85,16 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // Load data on component mount and when user changes
+  // Load data on component mount only
   useEffect(() => {
-    loadSections();
-    loadStudents();
-    loadTeacherData();
-  }, [currentUser?.id]);
+    if (currentUser?.id && !hasInitiallyLoaded.current && !isManuallyLoading.current) {
+      hasInitiallyLoaded.current = true;
+      loadSections();
+      loadStudents();
+      loadTeacherData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load sections from Supabase (ALL sections, not scoped to teacher)
   const loadSections = async () => {
@@ -105,6 +117,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
   // Load ALL students (not scoped to teacher)
   const loadStudents = async () => {
     try {
+      console.log('Loading students from database...');
       const { data, error } = await supabase
         .from("students")
         .select(
@@ -118,7 +131,10 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
       if (error) {
         console.error("Error loading students:", error);
       } else {
-        setStudents(data || []);
+        console.log(`Loaded ${data?.length || 0} students from database`);
+        // Force update by creating new array reference
+        setStudents([...(data || [])]);
+        console.log(`State update scheduled with ${data?.length || 0} students`);
       }
     } catch (error) {
       console.error("Error loading students:", error);
@@ -421,9 +437,11 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         });
       }
 
-      // Wait longer for the trigger to process and session to stabilize
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      console.log('Session restored, waiting for database...');
+      // Wait for the trigger to process and session to stabilize
+      await new Promise((resolve) => setTimeout(resolve, 3000));
 
+      console.log('Inserting student record...');
       // Insert student record with user_id
       const { data: studentRow, error: studentError } = await supabase
         .from("students")
@@ -437,44 +455,49 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
             created_by: currentUser?.id,
           },
         ])
-        .select(`*, sections(name)`)
+        .select(`*, sections(id, name, created_by)`)
         .single();
 
       if (studentError) {
         console.error("Student record error:", studentError);
-        // Try to fetch if already exists (created by trigger)
-        const { data: existingStudent } = await supabase
-          .from("students")
-          .select(`*, sections(name)`)
-          .eq("user_id", authData.user.id)
-          .single();
-
-        if (existingStudent) {
-          // Reload all data to ensure consistency
-          await loadStudents();
-          await loadSections();
-          setStudentName("");
-          setStudentUsername("");
-          setStudentEmail("");
-          setStudentPassword("");
-          setStudentSection("");
-          setShowPassword(false);
-          showNotification(`Student "${name}" created successfully!`);
-        } else {
-          alert("Error saving student record: " + studentError.message);
-        }
       } else {
-        // Reload all data to ensure consistency
-        await loadStudents();
-        await loadSections();
-        setStudentName("");
-        setStudentUsername("");
-        setStudentEmail("");
-        setStudentPassword("");
-        setStudentSection("");
-        setShowPassword(false);
-        showNotification(`Student "${name}" created successfully!`);
+        console.log('Student record created:', studentRow);
       }
+
+      console.log('Waiting before reload...');
+      // Wait a bit more and reload all students from database
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      
+      console.log('Reloading students from database...');
+      const beforeCount = students.length;
+      
+      // Fetch fresh data directly here instead of using loadStudents
+      const { data: freshStudents, error: loadError } = await supabase
+        .from("students")
+        .select(`
+          *,
+          sections(id, name, created_by)
+        `)
+        .order("created_at", { ascending: true });
+      
+      if (loadError) {
+        console.error('Error loading students:', loadError);
+      } else {
+        console.log(`Fetched ${freshStudents?.length || 0} students from database`);
+        console.log('Forcing page reload to show new student...');
+        // Force full page reload to ensure UI updates
+        window.location.reload();
+        return;
+      }
+      
+      // Reset form
+      setStudentName("");
+      setStudentUsername("");
+      setStudentEmail("");
+      setStudentPassword("");
+      setStudentSection("");
+      setShowPassword(false);
+      showNotification(`Student "${name}" created successfully!`);
     } catch (error) {
       console.error("Error creating student:", error);
       alert("Error creating student: " + error.message);
@@ -559,7 +582,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
                 created_by: currentUser?.id,
               },
             ])
-            .select("*, sections(name)")
+            .select("*, sections(id, name, created_by)")
             .single();
 
           if (!studentError && studentRow) {
@@ -569,7 +592,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
             // Try to fetch if already exists
             const { data: existingStudent } = await supabase
               .from("students")
-              .select(`*, sections(name)`)
+              .select(`*, sections(id, name, created_by)`)
               .eq("user_id", authData.user.id)
               .single();
 
@@ -584,9 +607,9 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         }
       }
 
-      // Reload all data from database
+      // Wait a bit and reload all students from database
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       await loadStudents();
-      await loadSections();
 
       // Reset forms
       setMultipleStudents([
@@ -654,14 +677,6 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
           <span className="font-semibold">{notification.message}</span>
         </div>
       )}
-
-      {/* Test button */}
-      <button
-        onClick={testSupabaseConnection}
-        className="fixed top-20 right-5 z-40 bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg shadow-lg transition-all"
-      >
-        Test DB Connection
-      </button>
 
       {/* Modern Navbar */}
       <nav className="bg-gradient-to-r from-orange-500 to-orange-600 shadow-lg">
@@ -799,7 +814,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
         {/* NEW LAYOUT: Two Column Structure */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
           {/* LEFT COLUMN - All Students List */}
-          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 h-fit lg:sticky lg:top-8">
+          <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 h-fit lg:sticky lg:top-8" key={`students-list-${renderKey}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl sm:text-2xl font-bold text-gray-800">
                 ALL STUDENTS ({filteredStudents.length})
@@ -840,7 +855,7 @@ export default function Homepage({ onNavigate, currentUser, onLogout }) {
             <div className="space-y-3 max-h-[500px] lg:max-h-[700px] overflow-y-auto pr-2">
               {filteredStudents.map((student, index) => (
                 <div
-                  key={student.id}
+                  key={`${student.id}-${renderKey}`}
                   className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
                   style={{
                     animation: `slideIn 0.5s ease-out ${index * 0.1}s both`,
