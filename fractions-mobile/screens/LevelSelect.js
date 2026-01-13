@@ -895,7 +895,6 @@ export default function AdventureGame({ navigation, route }) {
                           styles.gradientGlowContainer,
                           {
                             opacity: cardGlowOpacity,
-                            transform: [{ scale: cardGlowScale }],
                           },
                         ]}
                       >
@@ -904,7 +903,10 @@ export default function AdventureGame({ navigation, route }) {
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 1 }}
                           style={styles.gradientGlow}
-                        />
+                        >
+                          {/* Inner cutout to create border effect */}
+                          <View style={styles.gradientGlowInner} />
+                        </LinearGradient>
                       </Animated.View>
                     )}
 
@@ -913,9 +915,8 @@ export default function AdventureGame({ navigation, route }) {
                         styles.levelCard,
                         isActive && styles.levelCardActive,
                         isActive &&
-                          level.isUnlocked && {
-                            transform: [{ scale: 1.02 }],
-                          },
+                          level.isUnlocked &&
+                          styles.levelCardActiveUnlocked,
                         isSelected && styles.levelCardSelected,
                         !level.isUnlocked && styles.levelCardLocked,
                       ]}
@@ -923,23 +924,6 @@ export default function AdventureGame({ navigation, route }) {
                       activeOpacity={level.isUnlocked ? 0.8 : 1}
                       disabled={!level.isUnlocked}
                     >
-                      {/* Animated Gradient Border Inside Card */}
-                      {isActive && level.isUnlocked && (
-                        <Animated.View
-                          style={[
-                            styles.innerGradientBorder,
-                            { opacity: cardGlowOpacity },
-                          ]}
-                        >
-                          <LinearGradient
-                            colors={[...level.glowColors, level.glowColors[0]]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.innerGradient}
-                          />
-                        </Animated.View>
-                      )}
-
                       {/* Background Image - Only visible if unlocked */}
                       {level.backgroundImage && level.isUnlocked && (
                         <Image
@@ -1307,58 +1291,44 @@ const styles = StyleSheet.create({
     width: CARD_WIDTH,
     position: "relative",
   },
-  // Gradient glow container - positioned behind the card
+  // Gradient glow container - positioned behind the card as border
   gradientGlowContainer: {
     position: "absolute",
-    top: -moderateScale(8),
-    left: -moderateScale(8),
-    right: -moderateScale(8),
-    bottom: -moderateScale(8),
-    borderRadius: moderateScale(26),
-    zIndex: -1,
+    top: -moderateScale(4),
+    left: -moderateScale(4),
+    right: -moderateScale(4),
+    bottom: -moderateScale(4),
+    borderRadius: moderateScale(24),
+    zIndex: 0,
   },
   gradientGlow: {
     flex: 1,
-    borderRadius: moderateScale(26),
-    shadowOpacity: 0.8,
-    shadowRadius: 25,
-    elevation: 15,
+    borderRadius: moderateScale(24),
+    padding: moderateScale(4),
   },
-  // Inner gradient border
-  innerGradientBorder: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: moderateScale(20),
-    zIndex: 1,
-    pointerEvents: "none",
-  },
-  innerGradient: {
+  gradientGlowInner: {
     flex: 1,
+    backgroundColor: "transparent",
     borderRadius: moderateScale(20),
-    opacity: 0.3,
   },
   levelCard: {
     width: CARD_WIDTH,
     height: SCREEN_HEIGHT * 0.26,
     backgroundColor: "rgba(255, 255, 255, 0.98)",
     borderRadius: moderateScale(20),
-    borderWidth: moderateScale(4),
-    borderColor: "rgba(255, 255, 255, 0.8)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 10,
+    borderWidth: moderateScale(3),
+    borderColor: "rgba(255, 255, 255, 0.9)",
+    elevation: 5,
     opacity: 1,
     overflow: "hidden",
     position: "relative",
+    zIndex: 1,
   },
   levelCardActive: {
-    borderWidth: moderateScale(5),
     borderColor: "transparent",
+  },
+  levelCardActiveUnlocked: {
+    transform: [{ scale: 1.01 }],
   },
   levelCardSelected: {
     borderColor: "#ffa75b",

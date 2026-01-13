@@ -13,6 +13,8 @@ import {
   AlertCircle,
   Award,
   Bell,
+  Trash2,
+  X,
 } from "lucide-react";
 
 const logo = process.env.PUBLIC_URL + "/logo.png";
@@ -27,6 +29,10 @@ export default function DetailedReport({
   const [loading, setLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
+  const [deleteModal, setDeleteModal] = useState({
+    show: false,
+    student: null,
+  });
 
   useEffect(() => {
     if (!section || !section.id) {
@@ -322,6 +328,40 @@ export default function DetailedReport({
     [summaries]
   );
 
+  // Delete handlers
+  const handleDeleteClick = (student, e) => {
+    e.stopPropagation();
+    setDeleteModal({ show: true, student });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (deleteModal.student) {
+      try {
+        // Delete from students table
+        const { error } = await supabase
+          .from("students")
+          .delete()
+          .eq("id", deleteModal.student.id);
+
+        if (error) {
+          console.error("Error deleting student:", error);
+          alert("Failed to delete student. Please try again.");
+        } else {
+          // Remove from local state
+          setStudents(students.filter((s) => s.id !== deleteModal.student.id));
+          setDeleteModal({ show: false, student: null });
+        }
+      } catch (error) {
+        console.error("Error deleting student:", error);
+        alert("An error occurred. Please try again.");
+      }
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteModal({ show: false, student: null });
+  };
+
   // Safety check: show error if no section (AFTER hooks)
   if (!section) {
     return (
@@ -348,6 +388,53 @@ export default function DetailedReport({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Delete Confirmation Modal */}
+      {deleteModal.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 transform transition-all">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-800">
+                Confirm Delete
+              </h3>
+              <button
+                onClick={handleCancelDelete}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="mb-6">
+              <p className="text-gray-600 mb-2">
+                Are you sure you want to delete this student?
+              </p>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-3">
+                <p className="font-semibold text-gray-800">
+                  {deleteModal.student?.name}
+                </p>
+                <p className="text-sm text-gray-600 mt-1">
+                  This action cannot be undone. All progress data will be
+                  permanently removed.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancelDelete}
+                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-all"
+              >
+                No, Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="flex-1 px-4 py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition-all"
+              >
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Navbar */}
       <nav className="bg-gradient-to-r from-orange-500 to-orange-600 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
@@ -385,12 +472,18 @@ export default function DetailedReport({
                 >
                   <div className="text-right hidden sm:block">
                     <div className="text-white font-semibold text-sm">
-                      {currentUser?.user_metadata?.full_name || currentUser?.email || "Teacher"}
+                      {currentUser?.user_metadata?.full_name ||
+                        currentUser?.email ||
+                        "Teacher"}
                     </div>
                     <div className="text-orange-100 text-xs">Admin</div>
                   </div>
                   <img
-                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser?.user_metadata?.full_name || currentUser?.email || "Teacher")}&background=F68C2E&color=fff`}
+                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
+                      currentUser?.user_metadata?.full_name ||
+                        currentUser?.email ||
+                        "Teacher"
+                    )}&background=F68C2E&color=fff`}
                     alt="User"
                     className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white"
                   />
@@ -715,6 +808,13 @@ export default function DetailedReport({
                     >
                       {status.label}
                     </span>
+                    <button
+                      onClick={(e) => handleDeleteClick(student, e)}
+                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete student"
+                    >
+                      <Trash2 size={18} />
+                    </button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
@@ -773,6 +873,9 @@ export default function DetailedReport({
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">
                     Status
                   </th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -784,7 +887,8 @@ export default function DetailedReport({
                       key={student.id}
                       className="hover:bg-gray-50 transition-colors cursor-pointer"
                       onClick={() =>
-                        onNavigate && onNavigate("studentreport", { student, section })
+                        onNavigate &&
+                        onNavigate("studentreport", { student, section })
                       }
                     >
                       <td className="px-6 py-4">
@@ -832,6 +936,15 @@ export default function DetailedReport({
                         >
                           {status.label}
                         </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={(e) => handleDeleteClick(student, e)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete student"
+                        >
+                          <Trash2 size={18} />
+                        </button>
                       </td>
                     </tr>
                   );
