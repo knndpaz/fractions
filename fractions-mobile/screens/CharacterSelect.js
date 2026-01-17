@@ -118,17 +118,57 @@ const getCurrentUserId = async () => {
 
 const saveCharacterForUser = async (characterIdx) => {
   try {
-    const userId = await getCurrentUserId();
+    const user = await supabase.auth.getUser();
+    const userId = user?.data?.user?.id || (await getCurrentUserId());
     if (!userId) return;
-    // Update students table
-    await supabase
-      .from("students")
-      .update({ character_index: characterIdx })
-      .eq("user_id", userId);
+    // Build required fields for students table (name, username, email are NOT NULL)
+    const email =
+      user?.data?.user?.email || (await AsyncStorage.getItem("userData")) && JSON.parse(await AsyncStorage.getItem("userData")).email || "";
+    const storedUserData = await AsyncStorage.getItem("userData");
+    const parsedUserData = storedUserData ? JSON.parse(storedUserData) : {};
+    const name = parsedUserData.fullName || parsedUserData.name || user?.data?.user?.user_metadata?.full_name || "Player";
+    const username =
+      parsedUserData.username ||
+      (email ? email.split("@")[0] : `player_${(userId || "").slice(0, 8)}`);
+
+    // Use upsert on user_id (requires unique index on user_id)
+    try {
+      await supabase.from("students").upsert(
+        {
+          user_id: userId,
+          name,
+          username,
+          email,
+          character_index: characterIdx,
+        },
+        { onConflict: "user_id" }
+      );
+    } catch (upsertErr) {
+      console.warn("Upsert failed, falling back to update/insert:", upsertErr);
+      // Fallback: attempt update then insert
+      try {
+        const { data, error } = await supabase
+          .from("students")
+          .update({ character_index: characterIdx })
+          .eq("user_id", userId);
+        if (error || !data || (Array.isArray(data) && data.length === 0)) {
+          await supabase.from("students").insert({
+            user_id: userId,
+            name,
+            username,
+            email,
+            character_index: characterIdx,
+          });
+        }
+      } catch (e) {
+        console.error("Fallback save failed:", e);
+      }
+    }
+
     // Save locally for fast access
     await AsyncStorage.setItem("character_index", String(characterIdx));
   } catch (e) {
-    // handle error
+    console.error("Error saving character:", e);
   }
 };
 
@@ -210,10 +250,47 @@ export default function CharacterSelect({ navigation }) {
       const userData = await AsyncStorage.getItem("userData");
       const parsedUserData = JSON.parse(userData);
 
-      await supabase
-        .from("students")
-        .update({ character_index: characterIndex })
-        .eq("user_id", parsedUserData.id);
+      // Build required fields
+      const supUser = await supabase.auth.getUser();
+      const email =
+        supUser?.data?.user?.email || parsedUserData?.email || "";
+      const name =
+        parsedUserData?.fullName || parsedUserData?.name || supUser?.data?.user?.user_metadata?.full_name || "Player";
+      const username =
+        parsedUserData?.username || (email ? email.split("@")[0] : `player_${(parsedUserData?.id || "").slice(0, 8)}`);
+
+      // Use upsert (requires unique index on user_id)
+      try {
+        await supabase.from("students").upsert(
+          {
+            user_id: parsedUserData.id,
+            name,
+            username,
+            email,
+            character_index: characterIndex,
+          },
+          { onConflict: "user_id" }
+        );
+      } catch (upsertErr) {
+        console.warn("Upsert failed, falling back to update/insert:", upsertErr);
+        try {
+          const { data, error } = await supabase
+            .from("students")
+            .update({ character_index: characterIndex })
+            .eq("user_id", parsedUserData.id);
+          if (error || !data || (Array.isArray(data) && data.length === 0)) {
+            await supabase.from("students").insert({
+              user_id: parsedUserData.id,
+              name,
+              username,
+              email,
+              character_index: characterIndex,
+            });
+          }
+        } catch (insertErr) {
+          console.warn("Insert fallback failed:", insertErr);
+        }
+      }
 
       await AsyncStorage.setItem("character_index", String(characterIndex));
 

@@ -313,7 +313,9 @@ export default function AdventureGame({ navigation, route }) {
 
     if (navigation) {
       const unsubscribe = navigation.addListener("focus", () => {
+        // Reload both progress and user data when coming back into focus
         loadProgress();
+        loadUserData();
       });
       return unsubscribe;
     }
@@ -327,6 +329,17 @@ export default function AdventureGame({ navigation, route }) {
         setUserData(parsedUserData);
 
         // Fetch character index from database if supabase is available
+        // Try to use AsyncStorage saved character first (fast local source)
+        const storedChar = await AsyncStorage.getItem("character_index");
+        const parsedStoredChar =
+          storedChar !== null ? parseInt(storedChar, 10) : null;
+
+        if (parsedStoredChar !== null && !isNaN(parsedStoredChar)) {
+          setCharacterIndex(parsedStoredChar);
+          return;
+        }
+
+        // Otherwise fall back to Supabase (if available) or route param
         if (supabase) {
           const userId = parsedUserData.id || parsedUserData.user_id;
           if (userId) {
@@ -336,9 +349,14 @@ export default function AdventureGame({ navigation, route }) {
                 .select("character_index")
                 .eq("user_id", userId)
                 .single();
-              setCharacterIndex(studentData?.character_index || 0);
+              const dbChar = studentData?.character_index;
+              if (dbChar !== undefined && dbChar !== null) {
+                setCharacterIndex(dbChar);
+              } else {
+                setCharacterIndex(routeSelectedCharacter || 0);
+              }
             } catch (e) {
-              console.log("Could not fetch character from supabase");
+              console.log("Could not fetch character from supabase", e);
               setCharacterIndex(routeSelectedCharacter || 0);
             }
           } else {
