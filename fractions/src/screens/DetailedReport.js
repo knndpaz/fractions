@@ -337,11 +337,10 @@ export default function DetailedReport({
   const handleConfirmDelete = async () => {
     if (deleteModal.student) {
       try {
-        // Delete from students table
-        const { error } = await supabase
-          .from("students")
-          .delete()
-          .eq("id", deleteModal.student.id);
+        // Call RPC function to delete student and auth user
+        const { data, error } = await supabase.rpc("delete_student_and_auth", {
+          student_user_id: deleteModal.student.user_id,
+        });
 
         if (error) {
           console.error("Error deleting student:", error);

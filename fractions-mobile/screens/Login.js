@@ -193,24 +193,94 @@ export default function Login({ navigation }) {
       const isEmail = input.includes("@");
 
       if (!isEmail) {
-        // If it's not an email, look up the email from the username
-        console.log("Looking up email for username:", input);
+        // TEMPORARY WORKAROUND: Try both username as email directly
+        // This assumes passwords might work if user enters username
+        console.log("Attempting login with username as-is:", input);
+        
+        // First, try to see if the username might actually be stored as email in auth
+        // by attempting to construct common email patterns
+        const possibleEmails = [
+          `${input}@gmail.com`, // Most common pattern from your data
+          input, // In case it's actually an email without @
+        ];
 
-        const { data: studentData, error: lookupError } = await supabase
-          .from("students")
-          .select("email")
-          .eq("username", input)
-          .single();
+        let foundEmail = null;
+        
+        // Try the most likely email pattern first
+        for (const testEmail of possibleEmails) {
+          console.log("Trying email pattern:", testEmail);
+          
+          const { data: testData, error: testError } = await supabase.auth.signInWithPassword({
+            email: testEmail,
+            password: password,
+          });
 
-        if (lookupError || !studentData) {
-          console.log("Username lookup error:", lookupError);
-          showToast("Username not found. Please check and try again.", "error");
+          if (!testError && testData?.user) {
+            // Found the correct email!
+            foundEmail = testEmail;
+            email = testEmail;
+            console.log("Successfully logged in with:", testEmail);
+            break;
+          }
+        }
+
+        if (!foundEmail) {
+          showToast("Username not found. Try using your email address (e.g., test2@gmail.com)", "error");
+          setLoading(false);
+          return;
+        }
+        
+        // Skip the normal login below since we already logged in
+        const { data } = await supabase.auth.getUser();
+        if (!data?.user) {
+          showToast("Login failed. Please try again.", "error");
           setLoading(false);
           return;
         }
 
-        email = studentData.email;
-        console.log("Found email for username:", email);
+        // Continue with post-login logic
+        console.log("Login successful:", data.user.email);
+
+        const userData = {
+          id: data.user.id,
+          email: data.user.email,
+          fullName: data.user.user_metadata?.full_name || "User",
+          username: data.user.user_metadata?.username || email.split("@")[0],
+        };
+
+        await AsyncStorage.setItem("userData", JSON.stringify(userData));
+
+        const { data: studentRows } = await supabase
+          .from("students")
+          .select("character_index")
+          .eq("user_id", data.user.id)
+          .single();
+
+        const characterIdx = studentRows?.character_index;
+        await AsyncStorage.setItem(
+          "character_index",
+          String(characterIdx ?? "")
+        );
+
+        showToast("Login successful!", "success");
+        startBackgroundMusic();
+
+        setTimeout(() => {
+          if (
+            characterIdx !== null &&
+            characterIdx !== undefined &&
+            characterIdx !== ""
+          ) {
+            navigation.replace("LevelSelect", {
+              selectedCharacter: Number(characterIdx),
+            });
+          } else {
+            navigation.replace("CharacterSelect");
+          }
+        }, 1000);
+        
+        setLoading(false);
+        return;
       }
 
       console.log("Attempting login for:", email);
